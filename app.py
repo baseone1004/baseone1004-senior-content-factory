@@ -16,6 +16,10 @@ for key in ["topics","selected_topic_data","longform_result","polished_result","
         st.session_state[key] = None
 if "step" not in st.session_state:
     st.session_state.step = "home"
+if "content_mode" not in st.session_state:
+    st.session_state.content_mode = "economy"
+if "language" not in st.session_state:
+    st.session_state.language = "한국어"
 
 def parse_topics(raw_text):
     topics = []
@@ -24,7 +28,7 @@ def parse_topics(raw_text):
     current = None
     for line in lines:
         line = line.strip()
-        if not line:
+        if not line or line == "---":
             continue
         match = re.match(pattern, line)
         if match:
@@ -32,11 +36,16 @@ def parse_topics(raw_text):
                 topics.append(current)
             current = {"title": match.group(1).strip(), "prob": match.group(2).strip(), "alt_a": "", "alt_b": "", "tags": "", "source": ""}
         elif current:
+            low = line.lower()
             if line.startswith("\ucd9c\ucc98:"):
                 current["source"] = line.split(":", 1)[1].strip()
-            elif line.startswith("\ub300\uc548A:"):
+            elif line.startswith("\ub300\uc548A:") or line.startswith("\ub300\uc548A :") or low.startswith("대안a:") or low.startswith("대안a :"):
                 current["alt_a"] = line.split(":", 1)[1].strip()
-            elif line.startswith("\ub300\uc548B:"):
+            elif line.startswith("\ub300\uc548B:") or line.startswith("\ub300\uc548B :") or low.startswith("대안b:") or low.startswith("대안b :"):
+                current["alt_b"] = line.split(":", 1)[1].strip()
+            elif line.startswith("\ub300\uc548 A:") or line.startswith("\ub300\uc548 A :"):
+                current["alt_a"] = line.split(":", 1)[1].strip()
+            elif line.startswith("\ub300\uc548 B:") or line.startswith("\ub300\uc548 B :"):
                 current["alt_b"] = line.split(":", 1)[1].strip()
             elif line.startswith("\ud0dc\uadf8:"):
                 current["tags"] = line.split(":", 1)[1].strip()
@@ -57,9 +66,9 @@ def parse_longform(raw_text):
             result["desc"] = stripped.replace("\uc124\uba85\uae00:", "").strip()
         elif stripped.startswith("\ud0dc\uadf8:") and not result["tags"]:
             result["tags"] = stripped.replace("\ud0dc\uadf8:", "").strip()
-        elif stripped == "=\ub300\ubcf8 \uc2dc\uc791=":
+        elif stripped == "=\ub300\ubcf8 \uc2dc\uc791=" or stripped == "=\ub300\ubcf8\uc2dc\uc791=":
             in_script = True
-        elif stripped == "=\ub300\ubcf8 \ub05d=":
+        elif stripped == "=\ub300\ubcf8 \ub05d=" or stripped == "=\ub300\ubcf8\ub05d=":
             in_script = False
         elif in_script:
             script_lines.append(line)
@@ -169,6 +178,9 @@ with st.sidebar:
         language = "일본어"
         content_mode = "senior"
 
+    st.session_state.content_mode = content_mode
+    st.session_state.language = language
+
     mode_text = "사실 기반 (실시간 검색)" if content_mode == "economy" else "100% 창작"
     st.markdown(f'<div class="status-bar"><b>현재 채널:</b> {channel_type}<br><b>콘텐츠 방식:</b> {mode_text}<br><b>언어:</b> {language}</div>', unsafe_allow_html=True)
     st.markdown("---")
@@ -185,6 +197,9 @@ with st.sidebar:
             st.session_state[key] = None
         st.session_state.step = "home"
         st.rerun()
+
+content_mode = st.session_state.content_mode
+language = st.session_state.language
 
 if st.session_state.step == "home":
     st.markdown("---")

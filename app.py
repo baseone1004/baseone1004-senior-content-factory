@@ -68,6 +68,49 @@ def parse_longform(raw_text):
         result["script"] = raw_text
     return result
 
+def parse_shorts(raw_text):
+    shorts = []
+    parts = re.split(r'=00[1-9]=', raw_text)
+    if len(parts) > 1:
+        parts = parts[1:]
+    else:
+        return shorts
+    for part in parts:
+        s = {"title": "", "top1": "", "top2": "", "desc": "", "tags": "", "pinned": "", "script": ""}
+        lines = part.strip().split("\n")
+        in_script = False
+        script_lines = []
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("\uc81c\ubaa9:"):
+                s["title"] = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("\uc0c1\ub2e8\uc81c\ubaa9 \ucca8\uc9f8\uc904:") or stripped.startswith("\uc0c1\ub2e8\uc81c\ubaa9 \ucca8\uc9f8\uc904:"):
+                s["top1"] = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("\uc0c1\ub2e8\uc81c\ubaa9 \ub458\uc9f8\uc904:") or stripped.startswith("\uc0c1\ub2e8\uc81c\ubaa9 \ub458\uc9f8\uc904:"):
+                s["top2"] = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("\uc124\uba85\uae00:"):
+                s["desc"] = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("\ud0dc\uadf8:"):
+                s["tags"] = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("\uace0\uc815\ub313\uae00:"):
+                s["pinned"] = stripped.split(":", 1)[1].strip()
+            elif stripped.startswith("\uc21c\uc218\ub300\ubcf8:") or stripped.startswith("\uc21c\uc218 \ub300\ubcf8:"):
+                rest = stripped.split(":", 1)[1].strip()
+                if rest:
+                    script_lines.append(rest)
+                in_script = True
+            elif in_script:
+                if stripped.startswith("="):
+                    in_script = False
+                else:
+                    script_lines.append(stripped)
+        s["script"] = "\n".join(script_lines).strip()
+        if s["title"]:
+            shorts.append(s)
+    return shorts
+
 st.markdown("""
 <style>
 .main-title{font-size:2.5rem;font-weight:800;background:linear-gradient(90deg,#FF6B6B,#FFE66D);-webkit-background-clip:text;-webkit-text-fill-color:transparent;text-align:center;margin-bottom:.5rem}
@@ -85,6 +128,20 @@ st.markdown("""
 .ab-label{color:#FF8E53;font-weight:700;font-size:.85rem}
 .desc-box{background:#1A1F2E;border:1px solid #333;border-radius:10px;padding:1rem;margin-top:.5rem;color:#CCC;line-height:1.6}
 .tag-section{background:#1A1F2E;border:1px solid #333;border-radius:10px;padding:1rem;margin-top:.5rem}
+.shorts-card{background:linear-gradient(135deg,#1A1F2E,#2A2F3E);border:1px solid #444;border-radius:16px;padding:1.5rem;margin-bottom:1.5rem;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.shorts-num{background:linear-gradient(90deg,#FF6B6B,#FF8E53);color:#fff;font-size:1.1rem;font-weight:800;padding:.4rem 1rem;border-radius:20px;display:inline-block;margin-bottom:1rem}
+.shorts-title{font-size:1.3rem;font-weight:800;color:#FAFAFA;margin-bottom:.8rem;line-height:1.4}
+.shorts-top{background:#2A2F3E;border-left:3px solid #FF6B6B;padding:.6rem 1rem;border-radius:0 8px 8px 0;margin-bottom:.5rem}
+.shorts-top-label{color:#FF8E53;font-size:.75rem;font-weight:700}
+.shorts-top-text{color:#FFE66D;font-size:1rem;font-weight:700}
+.shorts-field{margin-top:1rem}
+.shorts-field-label{color:#FF8E53;font-size:.8rem;font-weight:700;margin-bottom:.3rem;text-transform:uppercase;letter-spacing:1px}
+.shorts-desc{background:#0E1117;border:1px solid #333;border-radius:10px;padding:1rem;color:#CCC;line-height:1.6;font-size:.9rem}
+.shorts-tags{background:#0E1117;border:1px solid #333;border-radius:10px;padding:.8rem 1rem;margin-top:.3rem}
+.shorts-tag{background:#2A2F3E;color:#FFE66D;padding:.2rem .5rem;border-radius:8px;font-size:.7rem;display:inline-block;margin:.2rem;border:1px solid #444}
+.shorts-script{background:#0E1117;border:1px solid #FF6B6B;border-radius:10px;padding:1.2rem;color:#FAFAFA;line-height:2;font-size:.95rem;white-space:pre-wrap}
+.shorts-pinned{background:linear-gradient(135deg,#2A2F3E,#1A1F2E);border:1px solid #FFE66D;border-radius:10px;padding:.8rem 1rem;color:#FFE66D;font-size:.9rem;margin-top:.3rem}
+.shorts-divider{border:0;height:2px;background:linear-gradient(90deg,transparent,#FF6B6B,transparent);margin:2rem 0}
 </style>
 """, unsafe_allow_html=True)
 
@@ -229,11 +286,14 @@ elif st.session_state.step == "result":
 
         with tab3:
             if st.session_state.shorts_result is None:
+                st.markdown("롱폼 대본을 기반으로 쇼츠 3편의 제목, 상단제목, 설명글, 태그, 대본, 고정댓글을 자동 생성합니다.")
+                longform_url_input = st.text_input("롱폼 영상 URL (고정댓글에 삽입됩니다)", value="", placeholder="https://youtu.be/...")
                 if st.button("쇼츠 3편 생성", type="primary", use_container_width=True):
                     with st.spinner("쇼츠 3편 생성 중..."):
                         tl = parsed["title"] if parsed["title"] else t["title"]
                         sm = parsed["script"][:2000] if parsed["script"] else st.session_state.longform_result[:2000]
-                        prompt = SHORTS_PROMPT.format(language=language, longform_title=tl, longform_summary=sm, longform_url="[여기에 롱폼 영상 URL 삽입]")
+                        url_val = longform_url_input if longform_url_input else "[여기에 롱폼 영상 URL 삽입]"
+                        prompt = SHORTS_PROMPT.format(language=language, longform_title=tl, longform_summary=sm, longform_url=url_val)
                         result, error = st.session_state.api.generate_long(prompt)
                         if error:
                             st.error(error)
@@ -241,7 +301,59 @@ elif st.session_state.step == "result":
                             st.session_state.shorts_result = result
                             st.rerun()
             else:
-                st.markdown(f'<div class="result-box">{st.session_state.shorts_result}</div>', unsafe_allow_html=True)
+                shorts_list = parse_shorts(st.session_state.shorts_result)
+                if shorts_list:
+                    for idx, s in enumerate(shorts_list):
+                        num = idx + 1
+                        tag_chips = ""
+                        if s["tags"]:
+                            tag_chips = "".join([f'<span class="shorts-tag">{x.strip()}</span>' for x in s["tags"].split(",") if x.strip()])
+
+                        html = f'''
+                        <div class="shorts-card">
+                            <span class="shorts-num">쇼츠 {num}편</span>
+
+                            <div class="shorts-field">
+                                <div class="shorts-field-label">제목</div>
+                                <div class="shorts-title">{s["title"]}</div>
+                            </div>
+
+                            <div class="shorts-field">
+                                <div class="shorts-field-label">상단제목</div>
+                                <div class="shorts-top">
+                                    <div class="shorts-top-text">{s["top1"]}</div>
+                                    <div class="shorts-top-text">{s["top2"]}</div>
+                                </div>
+                            </div>
+
+                            <div class="shorts-field">
+                                <div class="shorts-field-label">설명글</div>
+                                <div class="shorts-desc">{s["desc"]}</div>
+                            </div>
+
+                            <div class="shorts-field">
+                                <div class="shorts-field-label">태그</div>
+                                <div class="shorts-tags">{tag_chips}</div>
+                            </div>
+
+                            <div class="shorts-field">
+                                <div class="shorts-field-label">대본</div>
+                                <div class="shorts-script">{s["script"]}</div>
+                            </div>
+
+                            <div class="shorts-field">
+                                <div class="shorts-field-label">고정댓글</div>
+                                <div class="shorts-pinned">{s["pinned"]}</div>
+                            </div>
+                        </div>
+                        '''
+                        st.markdown(html, unsafe_allow_html=True)
+
+                        if num < len(shorts_list):
+                            st.markdown('<hr class="shorts-divider">', unsafe_allow_html=True)
+                else:
+                    st.markdown(f'<div class="result-box">{st.session_state.shorts_result}</div>', unsafe_allow_html=True)
+
                 st.download_button("쇼츠 3편 다운로드", st.session_state.shorts_result, file_name="shorts.txt", mime="text/plain")
 
 st.markdown('---')

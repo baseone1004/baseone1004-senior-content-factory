@@ -3,7 +3,7 @@ import re
 from utils.api_handler import APIHandler
 from prompts.topic_recommend import TOPIC_RECOMMEND_ECONOMY, TOPIC_RECOMMEND_SENIOR
 from prompts.economy_script import ECONOMY_SCRIPT_PROMPT
-from prompts.senior_longform import SENIOR_LONGFORM_PROMPT
+from prompts.senior_longform import SENIOR_LONGFORM_META, SENIOR_LONGFORM_PART
 from prompts.shorts_prompt import SHORTS_PROMPT
 from prompts.script_polish import SCRIPT_POLISH_PROMPT
 
@@ -36,16 +36,11 @@ def parse_topics(raw_text):
                 topics.append(current)
             current = {"title": match.group(1).strip(), "prob": match.group(2).strip(), "alt_a": "", "alt_b": "", "tags": "", "source": ""}
         elif current:
-            low = line.lower()
             if line.startswith("\ucd9c\ucc98:"):
                 current["source"] = line.split(":", 1)[1].strip()
-            elif line.startswith("\ub300\uc548A:") or line.startswith("\ub300\uc548A :") or low.startswith("대안a:") or low.startswith("대안a :"):
+            elif line.startswith("\ub300\uc548A:") or line.startswith("\ub300\uc548 A:") or line.startswith("\ub300\uc548A :"):
                 current["alt_a"] = line.split(":", 1)[1].strip()
-            elif line.startswith("\ub300\uc548B:") or line.startswith("\ub300\uc548B :") or low.startswith("대안b:") or low.startswith("대안b :"):
-                current["alt_b"] = line.split(":", 1)[1].strip()
-            elif line.startswith("\ub300\uc548 A:") or line.startswith("\ub300\uc548 A :"):
-                current["alt_a"] = line.split(":", 1)[1].strip()
-            elif line.startswith("\ub300\uc548 B:") or line.startswith("\ub300\uc548 B :"):
+            elif line.startswith("\ub300\uc548B:") or line.startswith("\ub300\uc548 B:") or line.startswith("\ub300\uc548B :"):
                 current["alt_b"] = line.split(":", 1)[1].strip()
             elif line.startswith("\ud0dc\uadf8:"):
                 current["tags"] = line.split(":", 1)[1].strip()
@@ -79,7 +74,7 @@ def parse_longform(raw_text):
 
 def parse_shorts(raw_text):
     shorts = []
-    parts = re.split(r'=00[1-9]=', raw_text)
+    parts = re.split(r'=\s*00[1-9]\s*=', raw_text)
     if len(parts) > 1:
         parts = parts[1:]
     else:
@@ -92,12 +87,14 @@ def parse_shorts(raw_text):
         for line in lines:
             stripped = line.strip()
             if not stripped:
+                if in_script:
+                    script_lines.append("")
                 continue
             if stripped.startswith("\uc81c\ubaa9:"):
                 s["title"] = stripped.split(":", 1)[1].strip()
-            elif "\uccab\uc9f8\uc904:" in stripped or "\uccab\uc9f8 \uc904:" in stripped:
+            elif "\uccab\uc9f8" in stripped and ":" in stripped:
                 s["top1"] = stripped.split(":", 1)[1].strip()
-            elif "\ub458\uc9f8\uc904:" in stripped or "\ub458\uc9f8 \uc904:" in stripped:
+            elif "\ub458\uc9f8" in stripped and ":" in stripped:
                 s["top2"] = stripped.split(":", 1)[1].strip()
             elif stripped.startswith("\uc124\uba85\uae00:"):
                 s["desc"] = stripped.split(":", 1)[1].strip()
@@ -105,7 +102,7 @@ def parse_shorts(raw_text):
                 s["tags"] = stripped.split(":", 1)[1].strip()
             elif stripped.startswith("\uace0\uc815\ub313\uae00:"):
                 s["pinned"] = stripped.split(":", 1)[1].strip()
-            elif stripped.startswith("\uc21c\uc218\ub300\ubcf8:") or stripped.startswith("\uc21c\uc218 \ub300\ubcf8:"):
+            elif "\uc21c\uc218" in stripped and "\ub300\ubcf8" in stripped and ":" in stripped:
                 rest = stripped.split(":", 1)[1].strip()
                 if rest:
                     script_lines.append(rest)
@@ -115,32 +112,48 @@ def parse_shorts(raw_text):
                     in_script = False
                 else:
                     script_lines.append(stripped)
-        s["script"] = "\n".join(script_lines).strip()
+        s["script"] = "\n".join([l for l in script_lines if l.strip()]).strip()
         if s["title"]:
             shorts.append(s)
     return shorts
 
 def render_shorts_card(num, s):
-    st.markdown(f'<div style="background:linear-gradient(90deg,#FF6B6B,#FF8E53);color:#fff;font-size:1.1rem;font-weight:800;padding:.4rem 1.2rem;border-radius:20px;display:inline-block;margin-bottom:1rem;">쇼츠 {num}편</div>', unsafe_allow_html=True)
-    st.markdown(f'<div style="color:#FF8E53;font-size:.8rem;font-weight:700;margin-bottom:.3rem;">제목</div>', unsafe_allow_html=True)
-    st.markdown(f'<div style="font-size:1.2rem;font-weight:800;color:#FAFAFA;background:linear-gradient(135deg,#1A1F2E,#2A2F3E);border:2px solid #FF6B6B;border-radius:12px;padding:1rem;margin-bottom:1rem;">{s["title"]}</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="background:linear-gradient(135deg,#1A1F2E,#2A2F3E);border:2px solid #FF6B6B;border-radius:16px;padding:1.5rem;margin-bottom:.5rem;">', unsafe_allow_html=True)
+    st.markdown(f'<div style="background:linear-gradient(90deg,#FF6B6B,#FF8E53);color:#fff;font-size:1.2rem;font-weight:800;padding:.5rem 1.5rem;border-radius:25px;display:inline-block;margin-bottom:1.2rem;">쇼츠 {num}편</div>', unsafe_allow_html=True)
+
+    st.markdown(f'<div style="color:#FF8E53;font-size:.85rem;font-weight:700;margin-bottom:.4rem;letter-spacing:1px;">제목</div>', unsafe_allow_html=True)
+    st.markdown(f'<div style="font-size:1.15rem;font-weight:800;color:#FAFAFA;background:#0E1117;border:1px solid #FF6B6B;border-radius:10px;padding:.8rem 1rem;margin-bottom:1rem;">{s["title"]}</div>', unsafe_allow_html=True)
+
     if s["top1"] or s["top2"]:
-        st.markdown(f'<div style="color:#FF8E53;font-size:.8rem;font-weight:700;margin-bottom:.3rem;">상단제목</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="background:#2A2F3E;border-left:3px solid #FF6B6B;padding:.6rem 1rem;border-radius:0 8px 8px 0;margin-bottom:.8rem;"><div style="color:#FFE66D;font-size:1rem;font-weight:700;">{s["top1"]}</div><div style="color:#FFE66D;font-size:1rem;font-weight:700;">{s["top2"]}</div></div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#FF8E53;font-size:.85rem;font-weight:700;margin-bottom:.4rem;letter-spacing:1px;">상단제목</div>', unsafe_allow_html=True)
+        top_html = ""
+        if s["top1"]:
+            top_html += f'<div style="color:#FFE66D;font-size:1.05rem;font-weight:700;">{s["top1"]}</div>'
+        if s["top2"]:
+            top_html += f'<div style="color:#FFE66D;font-size:1.05rem;font-weight:700;">{s["top2"]}</div>'
+        st.markdown(f'<div style="background:#2A2F3E;border-left:4px solid #FF6B6B;padding:.7rem 1rem;border-radius:0 10px 10px 0;margin-bottom:1rem;">{top_html}</div>', unsafe_allow_html=True)
+
     if s["desc"]:
-        st.markdown(f'<div style="color:#FF8E53;font-size:.8rem;font-weight:700;margin-bottom:.3rem;">설명글</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="background:#0E1117;border:1px solid #333;border-radius:10px;padding:1rem;color:#CCC;line-height:1.6;font-size:.9rem;margin-bottom:.8rem;">{s["desc"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#FF8E53;font-size:.85rem;font-weight:700;margin-bottom:.4rem;letter-spacing:1px;">설명글</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#0E1117;border:1px solid #333;border-radius:10px;padding:1rem;color:#CCC;line-height:1.7;font-size:.9rem;margin-bottom:1rem;">{s["desc"]}</div>', unsafe_allow_html=True)
+
     if s["tags"]:
-        st.markdown(f'<div style="color:#FF8E53;font-size:.8rem;font-weight:700;margin-bottom:.3rem;">태그</div>', unsafe_allow_html=True)
-        tag_chips = "".join([f'<span style="background:#2A2F3E;color:#FFE66D;padding:.2rem .5rem;border-radius:8px;font-size:.75rem;display:inline-block;margin:.2rem;border:1px solid #444;">{x.strip()}</span>' for x in s["tags"].split(",") if x.strip()])
-        st.markdown(f'<div style="background:#0E1117;border:1px solid #333;border-radius:10px;padding:.8rem 1rem;margin-bottom:.8rem;">{tag_chips}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#FF8E53;font-size:.85rem;font-weight:700;margin-bottom:.4rem;letter-spacing:1px;">태그</div>', unsafe_allow_html=True)
+        tag_chips = "".join([f'<span style="background:#2A2F3E;color:#FFE66D;padding:.25rem .6rem;border-radius:8px;font-size:.75rem;display:inline-block;margin:.15rem;border:1px solid #555;">{x.strip()}</span>' for x in s["tags"].split(",") if x.strip()])
+        st.markdown(f'<div style="background:#0E1117;border:1px solid #333;border-radius:10px;padding:.8rem 1rem;margin-bottom:1rem;">{tag_chips}</div>', unsafe_allow_html=True)
+
     if s["script"]:
-        st.markdown(f'<div style="color:#FF8E53;font-size:.8rem;font-weight:700;margin-bottom:.3rem;">대본</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#FF8E53;font-size:.85rem;font-weight:700;margin-bottom:.4rem;letter-spacing:1px;">대본</div>', unsafe_allow_html=True)
         script_html = s["script"].replace("\n", "<br>")
-        st.markdown(f'<div style="background:#0E1117;border:2px solid #FF6B6B;border-radius:10px;padding:1.2rem;color:#FAFAFA;line-height:2;font-size:.95rem;margin-bottom:.8rem;">{script_html}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#0E1117;border:2px solid #FF6B6B;border-radius:10px;padding:1.2rem;color:#FAFAFA;line-height:2.2;font-size:.95rem;margin-bottom:1rem;">{script_html}</div>', unsafe_allow_html=True)
+
     if s["pinned"]:
-        st.markdown(f'<div style="color:#FF8E53;font-size:.8rem;font-weight:700;margin-bottom:.3rem;">고정댓글</div>', unsafe_allow_html=True)
-        st.markdown(f'<div style="background:linear-gradient(135deg,#2A2F3E,#1A1F2E);border:2px solid #FFE66D;border-radius:10px;padding:.8rem 1rem;color:#FFE66D;font-size:.9rem;margin-bottom:.5rem;">{s["pinned"]}</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="color:#FF8E53;font-size:.85rem;font-weight:700;margin-bottom:.4rem;letter-spacing:1px;">고정댓글</div>', unsafe_allow_html=True)
+        st.markdown(f'<div style="background:#1A1F2E;border:2px solid #FFE66D;border-radius:10px;padding:.8rem 1rem;color:#FFE66D;font-size:.9rem;">{s["pinned"]}</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+PART_NAMES = ["파트1: 도입부와 일상", "파트2: 갈등의 시작", "파트3: 위기와 절정", "파트4: 반전과 전환", "파트5: 결말과 여운"]
 
 st.markdown("""
 <style>
@@ -250,20 +263,74 @@ elif st.session_state.step == "result":
 
     if st.session_state.longform_result is None:
         st.markdown("### 대본 생성 중...")
-        with st.spinner("롱폼 대본을 생성하고 있습니다..."):
-            if content_mode == "economy":
+        if content_mode == "economy":
+            with st.spinner("롱폼 대본을 생성하고 있습니다..."):
                 prompt = ECONOMY_SCRIPT_PROMPT.format(topic=t["title"])
                 result, error = st.session_state.api.generate_long_with_search(prompt)
-            else:
-                prompt = SENIOR_LONGFORM_PROMPT.format(topic=t["title"], language=language)
-                result, error = st.session_state.api.generate_long(prompt)
+                if error:
+                    st.error(error)
+                    if st.button("다시 시도"):
+                        st.rerun()
+                else:
+                    st.session_state.longform_result = result
+                    st.rerun()
+        else:
+            progress_bar = st.progress(0, text="1단계: 줄거리 및 구조 설계 중...")
+            meta_prompt = SENIOR_LONGFORM_META.format(topic=t["title"], language=language)
+            outline, error = st.session_state.api.generate_long(meta_prompt)
             if error:
                 st.error(error)
                 if st.button("다시 시도"):
                     st.rerun()
             else:
-                st.session_state.longform_result = result
-                st.rerun()
+                progress_bar.progress(15, text="줄거리 완성. 대본 파트별 생성 시작...")
+                meta_lines = outline.strip().split("\n")
+                meta_title = ""
+                meta_desc = ""
+                meta_tags = ""
+                for ml in meta_lines:
+                    mls = ml.strip()
+                    if mls.startswith("\uc81c\ubaa9:"):
+                        meta_title = mls
+                    elif mls.startswith("\uc124\uba85\uae00:"):
+                        meta_desc = mls
+                    elif mls.startswith("\ud0dc\uadf8:"):
+                        meta_tags = mls
+
+                all_script_parts = []
+                previous_ending = "없음 (첫 파트)"
+                success = True
+                for pi, pname in enumerate(PART_NAMES):
+                    pct = 15 + int((pi + 1) * 17)
+                    progress_bar.progress(pct, text=f"2단계: {pname} 대본 생성 중... ({pi+1}/5)")
+                    part_prompt = SENIOR_LONGFORM_PART.format(
+                        language=language,
+                        part_name=pname,
+                        outline=outline,
+                        previous_ending=previous_ending
+                    )
+                    part_result, part_error = st.session_state.api.generate_long(part_prompt)
+                    if part_error:
+                        st.error(part_error)
+                        success = False
+                        break
+                    all_script_parts.append(part_result)
+                    lines_list = part_result.strip().split("\n")
+                    ending_lines = [l for l in lines_list[-10:] if l.strip()]
+                    previous_ending = "\n".join(ending_lines[-5:]) if ending_lines else "이전 내용 계속"
+
+                if success:
+                    progress_bar.progress(100, text="대본 생성 완료!")
+                    header = "\n".join([x for x in [meta_title, meta_desc, meta_tags] if x])
+                    full_script = "\n".join(all_script_parts)
+                    final_result = header + "\n\n=\ub300\ubcf8 \uc2dc\uc791=\n" + full_script + "\n=\ub300\ubcf8 \ub05d="
+                    char_count = len(full_script)
+                    st.success(f"대본 생성 완료! 총 {char_count:,}자 (약 {char_count//500}분 분량)")
+                    st.session_state.longform_result = final_result
+                    st.rerun()
+                else:
+                    if st.button("다시 시도"):
+                        st.rerun()
     else:
         parsed = parse_longform(st.session_state.longform_result)
         display_title = parsed["title"] if parsed["title"] else t["title"]
@@ -282,8 +349,12 @@ elif st.session_state.step == "result":
             st.markdown(f'<div class="ab-box"><span class="ab-label">대안 A:</span> <span style="color:#FAFAFA;">{t["alt_a"]}</span></div>', unsafe_allow_html=True)
             st.markdown(f'<div class="ab-box"><span class="ab-label">대안 B:</span> <span style="color:#FAFAFA;">{t["alt_b"]}</span></div>', unsafe_allow_html=True)
 
+            script_text = parsed["script"]
+            char_count = len(script_text)
+            st.markdown(f'<div style="color:#FF8E53;font-size:.9rem;margin:1rem 0;">총 {char_count:,}자 | 약 {char_count//500}분 분량</div>', unsafe_allow_html=True)
+
             st.markdown('<div class="section-header">대본 (원본)</div>', unsafe_allow_html=True)
-            st.markdown(f'<div class="result-box">{parsed["script"]}</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="result-box">{script_text}</div>', unsafe_allow_html=True)
             st.download_button("원본 대본 다운로드", st.session_state.longform_result, file_name="longform_original.txt", mime="text/plain")
 
             if parsed["desc"]:
@@ -334,7 +405,7 @@ elif st.session_state.step == "result":
                     for idx, s in enumerate(shorts_list):
                         render_shorts_card(idx + 1, s)
                         if idx < len(shorts_list) - 1:
-                            st.markdown('<hr style="border:0;height:2px;background:linear-gradient(90deg,transparent,#FF6B6B,transparent);margin:2rem 0;">', unsafe_allow_html=True)
+                            st.markdown('<div style="margin:1.5rem 0;"></div>', unsafe_allow_html=True)
                 else:
                     st.markdown(f'<div class="result-box">{st.session_state.shorts_result}</div>', unsafe_allow_html=True)
 

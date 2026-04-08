@@ -6,13 +6,12 @@ from prompts.economy_script import ECONOMY_SCRIPT_PROMPT
 from prompts.senior_longform import SENIOR_LONGFORM_PROMPT
 from prompts.shorts_prompt import SHORTS_PROMPT
 from prompts.script_polish import SCRIPT_POLISH_PROMPT
-from prompts.video_plan import VIDEO_PLAN_PROMPT, TTS_GUIDE_PROMPT
 
 st.set_page_config(page_title="시니어 콘텐츠 팩토리", page_icon="\U0001F3AC", layout="wide")
 
 if "api" not in st.session_state:
     st.session_state.api = APIHandler()
-for key in ["topics","selected_topic_data","longform_result","polished_result","shorts_result","video_plan_result","tts_result"]:
+for key in ["topics","selected_topic_data","longform_result","polished_result","shorts_result"]:
     if key not in st.session_state:
         st.session_state[key] = None
 if "step" not in st.session_state:
@@ -86,13 +85,11 @@ st.markdown("""
 .ab-label{color:#FF8E53;font-weight:700;font-size:.85rem}
 .desc-box{background:#1A1F2E;border:1px solid #333;border-radius:10px;padding:1rem;margin-top:.5rem;color:#CCC;line-height:1.6}
 .tag-section{background:#1A1F2E;border:1px solid #333;border-radius:10px;padding:1rem;margin-top:.5rem}
-.video-step{background:linear-gradient(135deg,#1A1F2E,#2A2F3E);border:1px solid #444;border-radius:12px;padding:1.2rem;margin:.5rem 0}
-.video-step-num{background:#FF6B6B;color:#fff;width:30px;height:30px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-weight:700;margin-right:.5rem}
 </style>
 """, unsafe_allow_html=True)
 
 st.markdown('<div class="main-title">시니어 콘텐츠 팩토리</div>', unsafe_allow_html=True)
-st.markdown('<div class="sub-title">주제 추천 → 대본 → 교정 → 영상 제작 → 쇼츠 3편</div>', unsafe_allow_html=True)
+st.markdown('<div class="sub-title">주제 추천 → 대본 → 교정 → 쇼츠 3편</div>', unsafe_allow_html=True)
 
 with st.sidebar:
     st.markdown("### 채널 설정")
@@ -119,7 +116,7 @@ with st.sidebar:
             st.error(msg)
     st.markdown("---")
     if st.button("처음으로 돌아가기", use_container_width=True):
-        for key in ["topics","selected_topic_data","longform_result","polished_result","shorts_result","video_plan_result","tts_result"]:
+        for key in ["topics","selected_topic_data","longform_result","polished_result","shorts_result"]:
             st.session_state[key] = None
         st.session_state.step = "home"
         st.rerun()
@@ -159,7 +156,7 @@ elif st.session_state.step == "topics":
             st.markdown(f'<div class="topic-card"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:1.1rem;font-weight:700;color:#FAFAFA;">{t["title"]}</span><span class="prob-badge">떡상확률 {t["prob"]}%</span></div>{src}<div style="color:#777;font-size:.8rem;margin-top:.3rem;">대안A: {t["alt_a"]} | 대안B: {t["alt_b"]}</div><div style="margin-top:.5rem;">{tgs}</div></div>', unsafe_allow_html=True)
             if st.button("이 주제 선택", key=f"s_{i}", use_container_width=True):
                 st.session_state.selected_topic_data = t
-                for key in ["longform_result","polished_result","shorts_result","video_plan_result","tts_result"]:
+                for key in ["longform_result","polished_result","shorts_result"]:
                     st.session_state[key] = None
                 st.session_state.step = "result"
                 st.rerun()
@@ -187,7 +184,7 @@ elif st.session_state.step == "result":
         parsed = parse_longform(st.session_state.longform_result)
         display_title = parsed["title"] if parsed["title"] else t["title"]
 
-        tab1, tab2, tab3, tab4 = st.tabs(["대본 원본", "교정 대본", "영상 제작", "쇼츠 3편"])
+        tab1, tab2, tab3 = st.tabs(["대본 원본", "교정 대본", "쇼츠 3편"])
 
         with tab1:
             st.markdown('<div class="section-header">제목</div>', unsafe_allow_html=True)
@@ -231,74 +228,6 @@ elif st.session_state.step == "result":
                 st.download_button("교정 대본 다운로드", st.session_state.polished_result, file_name="longform_polished.txt", mime="text/plain")
 
         with tab3:
-            st.markdown('<div class="section-header">영상 제작 파이프라인</div>', unsafe_allow_html=True)
-
-            st.markdown("""
-            <div class="video-step">
-                <span class="video-step-num">1</span> <b>대본 교정</b> → 교정 대본 탭에서 완료
-            </div>
-            <div class="video-step">
-                <span class="video-step-num">2</span> <b>영상 제작 계획서</b> → 구간별 화면 연출, 자막, 배경음악 지시
-            </div>
-            <div class="video-step">
-                <span class="video-step-num">3</span> <b>TTS 최적화 대본</b> → AI 음성 합성용 대본 변환
-            </div>
-            <div class="video-step">
-                <span class="video-step-num">4</span> <b>음성 생성</b> → 타입캐스트, 인월드 등에서 TTS 대본으로 음성 생성
-            </div>
-            <div class="video-step">
-                <span class="video-step-num">5</span> <b>영상 편집</b> → 캡컷, 프리미어 프로에서 제작 계획서 기반으로 편집
-            </div>
-            <div class="video-step">
-                <span class="video-step-num">6</span> <b>업로드</b> → 제목, 설명글, 태그 복사하여 유튜브 업로드
-            </div>
-            """, unsafe_allow_html=True)
-
-            st.markdown("---")
-
-            col_a, col_b = st.columns(2)
-            with col_a:
-                if st.session_state.video_plan_result is None:
-                    if st.button("영상 제작 계획서 생성", type="primary", use_container_width=True):
-                        with st.spinner("제작 계획서 생성 중..."):
-                            script_for_plan = st.session_state.polished_result if st.session_state.polished_result else parsed["script"]
-                            prompt = VIDEO_PLAN_PROMPT.format(
-                                language=language,
-                                title=display_title,
-                                script_preview=script_for_plan[:3000]
-                            )
-                            result, error = st.session_state.api.generate_long(prompt)
-                            if error:
-                                st.error(error)
-                            else:
-                                st.session_state.video_plan_result = result
-                                st.rerun()
-                else:
-                    st.markdown('<div class="section-header">영상 제작 계획서</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="result-box">{st.session_state.video_plan_result}</div>', unsafe_allow_html=True)
-                    st.download_button("제작 계획서 다운로드", st.session_state.video_plan_result, file_name="video_plan.txt", mime="text/plain")
-
-            with col_b:
-                if st.session_state.tts_result is None:
-                    if st.button("TTS 최적화 대본 생성", type="primary", use_container_width=True):
-                        with st.spinner("TTS 대본 변환 중..."):
-                            script_for_tts = st.session_state.polished_result if st.session_state.polished_result else parsed["script"]
-                            prompt = TTS_GUIDE_PROMPT.format(
-                                language=language,
-                                script=script_for_tts[:8000]
-                            )
-                            result, error = st.session_state.api.generate_long(prompt)
-                            if error:
-                                st.error(error)
-                            else:
-                                st.session_state.tts_result = result
-                                st.rerun()
-                else:
-                    st.markdown('<div class="section-header">TTS 최적화 대본</div>', unsafe_allow_html=True)
-                    st.markdown(f'<div class="result-box">{st.session_state.tts_result}</div>', unsafe_allow_html=True)
-                    st.download_button("TTS 대본 다운로드", st.session_state.tts_result, file_name="tts_script.txt", mime="text/plain")
-
-        with tab4:
             if st.session_state.shorts_result is None:
                 if st.button("쇼츠 3편 생성", type="primary", use_container_width=True):
                     with st.spinner("쇼츠 3편 생성 중..."):

@@ -73,3 +73,25 @@ class APIHandler:
             return resp.text, None
         except Exception as e:
             return None, f"검색 생성 실패: {e}"
+
+    def generate_serial(self, prompts_list, progress_callback=None):
+        if not self.client:
+            return None, "API 클라이언트가 없습니다"
+        all_parts = []
+        for i, prompt in enumerate(prompts_list):
+            try:
+                resp = self.client.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=65000,
+                        temperature=0.9
+                    )
+                )
+                if resp.text:
+                    all_parts.append(resp.text)
+                if progress_callback:
+                    progress_callback(i + 1, len(prompts_list))
+            except Exception as e:
+                return None, f"{i+1}번째 파트 생성 실패: {e}"
+        return "\n\n".join(all_parts), None

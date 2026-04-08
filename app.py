@@ -191,12 +191,13 @@ if st.session_state.step == "home":
     c1, c2, c3 = st.columns([1,2,1])
     with c2:
         if st.button("주제 추천 받기", use_container_width=True, type="primary"):
-            with st.spinner("실시간 뉴스 검색 및 주제 분석 중..."):
+            with st.spinner("주제 분석 중..."):
                 if content_mode == "economy":
                     prompt = TOPIC_RECOMMEND_ECONOMY
+                    result, error = st.session_state.api.generate_long_with_search(prompt)
                 else:
                     prompt = TOPIC_RECOMMEND_SENIOR.format(language=language)
-                result, error = st.session_state.api.generate_long_with_search(prompt)
+                    result, error = st.session_state.api.generate_long(prompt)
                 if error:
                     st.error(error)
                 else:
@@ -206,7 +207,10 @@ if st.session_state.step == "home":
                     st.rerun()
 
 elif st.session_state.step == "topics":
-    st.markdown("### 추천 주제 목록 (2026년 실시간 기반)")
+    if content_mode == "economy":
+        st.markdown("### 추천 주제 목록 (2026년 실시간 뉴스 기반)")
+    else:
+        st.markdown("### 추천 주제 목록 (100% 창작)")
     topics = st.session_state.topics
     if not topics:
         st.warning("주제 파싱에 실패했습니다. 원본 결과를 표시합니다.")

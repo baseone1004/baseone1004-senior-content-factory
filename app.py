@@ -134,7 +134,7 @@ if st.session_state.step == "home":
                     prompt = TOPIC_RECOMMEND_ECONOMY
                 else:
                     prompt = TOPIC_RECOMMEND_SENIOR.format(language=language)
-                result, error = st.session_state.api.generate_with_search(prompt)
+                result, error = st.session_state.api.generate_long_with_search(prompt)
                 if error:
                     st.error(error)
                 else:
@@ -244,7 +244,7 @@ elif st.session_state.step == "result":
                 <span class="video-step-num">3</span> <b>TTS 최적화 대본</b> → AI 음성 합성용 대본 변환
             </div>
             <div class="video-step">
-                <span class="video-step-num">4</span> <b>음성 생성</b> → 타입캐스트, 클로바, 일레븐랩스 등에서 TTS 대본으로 음성 생성
+                <span class="video-step-num">4</span> <b>음성 생성</b> → 타입캐스트, 인월드 등에서 TTS 대본으로 음성 생성
             </div>
             <div class="video-step">
                 <span class="video-step-num">5</span> <b>영상 편집</b> → 캡컷, 프리미어 프로에서 제작 계획서 기반으로 편집

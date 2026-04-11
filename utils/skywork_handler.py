@@ -20,7 +20,7 @@ class SkyworkHandler:
             self.api_key = st.secrets["SKYWORK_API_KEY"]
         else:
             self.api_key = os.getenv("SKYWORK_API_KEY", "")
-        self.gateway = "https://api-tools.skywork.ai"
+        self.gateway = "https://api-tools.skywork.ai/theme-gateway"
 
     def _headers(self):
         return {
@@ -33,8 +33,19 @@ class SkyworkHandler:
         if not self.api_key:
             return False, "❌ 스카이워크 API 키 미설정"
         try:
-            body = {"title": "test", "content": "테스트입니다. 확인이라고만 답하세요.", "language": "Korean", "format": "md"}
-            r = requests.post(f"{self.gateway}/theme-gateway", headers=self._headers(), json=body, stream=True, timeout=30)
+            body = {
+                "title": "test",
+                "content": "테스트입니다. 확인이라고만 답하세요.",
+                "language": "Korean",
+                "format": "md"
+            }
+            r = requests.post(
+                self.gateway,
+                headers=self._headers(),
+                json=body,
+                stream=True,
+                timeout=30
+            )
             if r.status_code == 200:
                 return True, "✅ 스카이워크 연결 성공"
             return False, f"❌ HTTP {r.status_code}"
@@ -47,9 +58,20 @@ class SkyworkHandler:
     def generate_long(self, prompt: str) -> Tuple[str, str]:
         if not self.api_key:
             return None, "스카이워크 API 키가 설정되지 않았습니다"
-        body = {"title": "output", "content": prompt, "language": "Korean", "format": "md"}
+        body = {
+            "title": "output",
+            "content": prompt,
+            "language": "Korean",
+            "format": "md"
+        }
         try:
-            r = requests.post(f"{self.gateway}/theme-gateway", headers=self._headers(), json=body, stream=True, timeout=600)
+            r = requests.post(
+                self.gateway,
+                headers=self._headers(),
+                json=body,
+                stream=True,
+                timeout=600
+            )
             r.raise_for_status()
             full = ""
             for line in r.iter_lines(decode_unicode=True):
@@ -86,6 +108,7 @@ class SkyworkHandler:
         }
         if aspect_ratio:
             body["style"]["aspect_ratio"] = aspect_ratio
+
         url = f"{self.gateway}/api/sse/image/create"
         payload = json.dumps(body).encode("utf-8")
         headers = {

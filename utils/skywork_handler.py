@@ -1,5 +1,6 @@
 import os
 import json
+import io
 import requests
 import urllib.request
 import urllib.error
@@ -29,26 +30,56 @@ class SkyworkHandler:
             "Accept": "text/event-stream"
         }
 
+    def _parse_sse_doc(self, resp):
+        reader = io.TextIOWrapper(resp, encoding="utf-8", errors="replace")
+        buf = ""
+        for ch in iter(lambda: reader.read(1), ""):
+            buf += ch
+            while "\n\n" in buf:
+                block, buf = buf.split("\n\n", 1)
+                ev_type = None
+                ev_data = None
+                for line in block.strip().split("\n"):
+                    if line.startswith("event: "):
+                        ev_type = line[7:].strip()
+                    elif line.startswith("data: "):
+                        ev_data = line[6:]
+                if ev_data:
+                    try:
+                        data = json.loads(ev_data)
+                        yield ev_type or data.get("type", "message"), data
+                    except json.JSONDecodeError:
+                        pass
+
     def test_connection(self) -> Tuple[bool, str]:
         if not self.api_key:
             return False, "❌ 스카이워크 API 키 미설정"
         try:
             body = {
+                "type": "create_doc",
+                "request_id": "test-conn",
                 "title": "test",
                 "content": "테스트입니다. 확인이라고만 답하세요.",
-                "language": "Korean",
-                "format": "md"
+                "format": "md",
+                "source_platform": ""
             }
-            r = requests.post(
-                self.gateway,
-                headers=self._headers(),
-                json=body,
-                stream=True,
-                timeout=30
-            )
-            if r.status_code == 200:
-                return True, "✅ 스카이워크 연결 성공"
-            return False, f"❌ HTTP {r.status_code}"
+            payload = json.dumps(body).encode("utf-8")
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {self.api_key}"
+            }
+            url = f"{self.gateway}/api/sse/doc/create"
+            req = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                for ev_type, data in self._parse_sse_doc(resp):
+                    if ev_type == "error":
+                        msg = data.get("message", "알 수 없는 오류")
+                        return False, f"❌ {msg}"
+                    if ev_type in ("progress", "success", "content_chunk"):
+                        return True, "✅ 스카이워크 연결 성공"
+            return True, "✅ 스카이워크 연결 성공"
+        except urllib.error.HTTPError as e:
+            return False, f"❌ HTTP {e.code}"
         except Exception as e:
             return False, f"❌ 연결 실패: {e}"
 
@@ -59,37 +90,47 @@ class SkyworkHandler:
         if not self.api_key:
             return None, "스카이워크 API 키가 설정되지 않았습니다"
         body = {
+            "type": "create_doc",
+            "request_id": f"gen-{id(prompt)}",
             "title": "output",
             "content": prompt,
-            "language": "Korean",
-            "format": "md"
+            "format": "md",
+            "source_platform": ""
         }
+        url = f"{self.gateway}/api/sse/doc/create"
+        payload = json.dumps(body).encode("utf-8")
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "text/event-stream",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        req = urllib.request.Request(url, data=payload, method="POST", headers=headers)
+        full = ""
         try:
-            r = requests.post(
-                self.gateway,
-                headers=self._headers(),
-                json=body,
-                stream=True,
-                timeout=600
-            )
-            r.raise_for_status()
-            full = ""
-            for line in r.iter_lines(decode_unicode=True):
-                if not line:
-                    continue
-                if line.startswith("data:"):
-                    d = line[5:].strip()
-                    if d == "[DONE]":
-                        break
-                    try:
-                        obj = json.loads(d)
-                        for k in ["content", "text", "message"]:
-                            if k in obj:
-                                full += str(obj[k])
-                                break
-                    except json.JSONDecodeError:
-                        full += d
+            with urllib.request.urlopen(req, timeout=600) as resp:
+                for ev_type, data in self._parse_sse_doc(resp):
+                    if ev_type == "content_chunk":
+                        chunk = data.get("chunk", "")
+                        full += chunk
+                    elif ev_type == "deepsearch":
+                        chunk = data.get("chunk", "")
+                        full += chunk
+                    elif ev_type == "success":
+                        file_url = data.get("file_url", "")
+                        if file_url and not full:
+                            try:
+                                r = requests.get(file_url, timeout=120)
+                                r.raise_for_status()
+                                full = r.text
+                            except:
+                                pass
+                    elif ev_type == "error":
+                        msg = data.get("message", "알 수 없는 오류")
+                        return None, f"생성 실패: {msg}"
             return (full, None) if full else (None, "응답이 비어있습니다")
+        except urllib.error.HTTPError as e:
+            body_text = e.read().decode("utf-8", errors="replace")
+            return None, f"HTTP {e.code}: {body_text[:200]}"
         except Exception as e:
             return None, f"생성 실패: {e}"
 

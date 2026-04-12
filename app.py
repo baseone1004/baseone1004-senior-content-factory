@@ -646,173 +646,319 @@ with tab1:
 
 # ═══ 탭2: 롱폼 대본 ═══
 with tab2:
-    st.header("롱폼 대본 (약 30분)")
-    if st.session_state.selected_topic and not st.session_state.get("longform_topic"):
-        st.session_state["longform_topic"] = st.session_state.selected_topic
-    topic_long = st.text_input("영상 주제", key="longform_topic")
+    st.subheader("롱폼 대본 생성")
 
-    if st.button("롱폼 대본 생성", type="primary", use_container_width=True):
-        if not topic_long.strip():
-            st.warning("주제를 입력하세요")
-        elif not api:
-            st.error("API가 연결되지 않았습니다")
-        else:
-            with st.spinner("대본 생성 중 (1~3분 소요)..."):
-                try:
-                    from prompts.senior_longform import get_prompt
-                    prompt = get_prompt(topic_long.strip())
-                except Exception:
-                    prompt = f"'{topic_long.strip()}' 주제로 30분 분량 유튜브 롱폼 대본을 작성해줘.\n\n제목:\n태그:\n설명글:\n---대본시작---\n(본문)\n---대본끝---"
+    if not st.session_state.get("selected_topic"):
+        st.info("탭1에서 주제를 먼저 선택하세요.")
+    else:
+        st.success(f"선택된 주제: {st.session_state.selected_topic}")
 
-                raw_str = safe_generate(prompt)
+        if st.button("롱폼 대본 생성", key="gen_long"):
+            topic = st.session_state.selected_topic
+            category = st.session_state.get("selected_category", "경제/사회")
 
-                if raw_str:
-                    st.session_state.longform_script = raw_str
-                    meta = {}
-                    for f, p in [("title", r'제목:\s*(.+)'), ("tags", r'태그:\s*(.+)'), ("description", r'설명글:\s*(.+)')]:
-                        m = re.search(p, raw_str)
-                        if m:
-                            meta[f] = m.group(1).strip()
-                    bm = re.search(r'---대본시작---(.+?)---대본끝---', raw_str, re.DOTALL)
-                    meta["body"] = bm.group(1).strip() if bm else raw_str
-                    st.session_state.longform_metadata = meta
-                else:
-                    st.error("대본 생성 실패: 응답이 비어있습니다.")
+            long_prompt = f"""당신은 유튜브 롱폼 영상 전문 대본 작가입니다.
 
-    if st.session_state.longform_metadata:
-        meta = st.session_state.longform_metadata
-        with st.container(border=True):
-            st.subheader(meta.get("title", "제목 없음"))
-            if meta.get("tags"):
-                st.caption(f"태그: {meta['tags']}")
-            if meta.get("description"):
-                st.info(meta["description"])
-        with st.expander("대본 전문", expanded=True):
-            body = meta.get("body", "")
-            st.text_area("대본", body, height=500, key="lb_disp")
-            st.caption(f"{len(body)}자 | 약 {len(body)//350}분")
-        st.download_button("다운로드", st.session_state.longform_script,
-                           f"longform_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+주제: {topic}
+카테고리: {category}
 
+아래 규칙을 반드시 지키세요.
+
+출력형식 규칙:
+제목과 태그와 설명과 대본을 아래 구분자로 정확히 나누어 출력하세요.
+
+===제목===
+제목을 한 줄로 씁니다. 오십 자 이내. 특수기호 금지.
+
+===태그===
+쉼표로 구분. 십오 개에서 이십 개. 특수기호 금지. 해시태그 기호 금지.
+
+===설명===
+약 이백 자. 특수기호 금지. 해시태그 기호 금지.
+
+===대본===
+순수 대사만 씁니다. 역할 표시 금지. 내레이션이라는 단어 금지. 진행자라는 단어 금지. 번호 매기기 금지.
+마침표만 사용합니다. 물음표와 느낌표와 특수기호를 사용하지 않습니다.
+습니다체를 기본으로 깔되 중간중간 까요체로 질문을 던집니다.
+모든 영어와 외래어는 한글 순화어로 교체합니다.
+모든 숫자는 한글로 표기합니다.
+첫 문장부터 현장감 있게 시작합니다. 인사하지 않습니다. 자기소개하지 않습니다.
+금지어: 안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다, 다음에 또, 좋은 영상, 찾아오겠습니다.
+마지막 문장은 묵직한 여운으로 끝냅니다.
+전체 분량은 사십 문장에서 육십 문장 사이로 합니다."""
+
+            with st.spinner("롱폼 대본 생성 중..."):
+                raw = safe_generate(long_prompt)
+
+            if raw:
+                import re as _re
+
+                def clean_special(text):
+                    text = text.replace("#", "").replace("*", "").replace("_", "")
+                    text = text.replace("!", "").replace("?", "").replace(";", "")
+                    text = text.replace("~", "").replace("`", "").replace('"', "")
+                    text = text.replace("'", "").replace("(", "").replace(")", "")
+                    text = text.replace("[", "").replace("]", "").replace("{", "").replace("}", "")
+                    text = text.replace("<", "").replace(">", "").replace("|", "")
+                    text = text.replace("@", "").replace("$", "").replace("%", "")
+                    text = text.replace("^", "").replace("&", "").replace("+", "").replace("=", "")
+                    return text.strip()
+
+                def extract_section(text, start_marker, end_marker=None):
+                    try:
+                        s = text.split(start_marker)[1]
+                        if end_marker:
+                            s = s.split(end_marker)[0]
+                        return s.strip()
+                    except:
+                        return ""
+
+                title = clean_special(extract_section(raw, "===제목===", "===태그==="))
+                tags = clean_special(extract_section(raw, "===태그===", "===설명==="))
+                desc = clean_special(extract_section(raw, "===설명===", "===대본==="))
+                script = clean_special(extract_section(raw, "===대본==="))
+
+                st.session_state.long_title = title
+                st.session_state.long_tags = tags
+                st.session_state.long_desc = desc
+                st.session_state.long_script = script
+                st.session_state.long_raw = raw
+
+        if st.session_state.get("long_title"):
+            st.markdown("---")
+            st.markdown("**제목**")
+            st.code(st.session_state.long_title, language=None)
+
+            st.markdown("**태그**")
+            st.code(st.session_state.long_tags, language=None)
+
+            st.markdown("**설명**")
+            st.code(st.session_state.long_desc, language=None)
+
+            st.markdown("**대본**")
+            st.code(st.session_state.long_script, language=None)
+
+            sentences = [s.strip() for s in st.session_state.long_script.split(".") if s.strip()]
+            st.session_state.long_sentences = sentences
+            st.caption(f"총 {len(sentences)}문장")
 
 # ═══ 탭3: 쇼츠 대본 ═══
 with tab3:
-    st.header("쇼츠 대본 (3편 / 40초)")
-    if st.session_state.selected_topic and not st.session_state.get("shorts_topic"):
-        st.session_state["shorts_topic"] = st.session_state.selected_topic
-    topic_shorts = st.text_input("쇼츠 주제", key="shorts_topic")
+    st.subheader("쇼츠 대본 생성 (3편 세트)")
 
-    if st.button("쇼츠 3편 생성", type="primary", use_container_width=True):
-        if not topic_shorts.strip():
-            st.warning("주제를 입력하세요")
-        elif not api:
-            st.error("API가 연결되지 않았습니다")
-        else:
-            with st.spinner("쇼츠 3편 생성 중..."):
-                prompt = f"""유튜브 쇼츠 대본 작가야. 대주제: '{topic_shorts.strip()}'
-3편 세트를 만들어줘. 각 편은 8~12문장, 40초 이내 분량.
-인사/구독/좋아요 금지. 열린고리 기법 사용. 근데/그래서/결국 접속사. 습니다+까요 혼합체.
-이미지프롬프트: SD 2D anime style로 시작. 9:16 비율. 장면 수 = 문장 수.
+    if not st.session_state.get("selected_topic"):
+        st.info("탭1에서 주제를 먼저 선택하세요.")
+    else:
+        st.success(f"선택된 주제: {st.session_state.selected_topic}")
 
-반드시 아래 형식으로만 출력해:
+        if st.button("쇼츠 3편 세트 생성", key="gen_shorts"):
+            topic = st.session_state.selected_topic
+            category = st.session_state.get("selected_category", "경제/사회")
+
+            shorts_prompt = f"""당신은 유튜브 쇼츠 백만 조회수 전문 대본 작가이자 이미지 프롬프트 전문가입니다.
+
+대주제: {topic}
+카테고리: {category}
+
+세트 기획 규칙:
+하나의 대주제에서 세 개의 소주제를 도출합니다.
+세 개의 소주제는 반드시 서로 중복되지 않아야 합니다.
+아래 여덟 가지 관점에서 골고루 뽑습니다.
+관점 하나. 몰락 원인 분석.
+관점 둘. 전성기 실태.
+관점 셋. 내부 폭로.
+관점 넷. 비교 분석.
+관점 다섯. 수익 구조.
+관점 여섯. 피해자 시점.
+관점 일곱. 현재 상황.
+관점 여덟. 미래 전망.
+세 편을 채울 때 위 여덟 관점에서 가장 흥미로운 세 가지를 고릅니다.
+
+백만 조회수 대본 핵심 원칙:
+시청자가 스와이프하지 못하고 끝까지 보게 만드는 것이 목적입니다.
+인사하지 않습니다. 자기소개하지 않습니다. 구독 좋아요 언급하지 않습니다.
+
+일초 법칙. 첫 문장이 곧 생사입니다. 현장 투척형 또는 통념 파괴형 또는 공감 소환형 또는 충격 수치형 또는 질문 관통형으로 시작합니다.
+삼초 궁금증 폭탄. 처음 세 문장 안에 열린 고리를 겁니다.
+근데의 힘. 사용 접속사는 근데 그래서 결국 알고 보니 문제는. 피해야 하는 접속사는 그리고 또한 뿐만 아니라 한편.
+한 문장 한 호흡. 열다섯 자에서 마흔 자 사이. 쉰 자 넘으면 두 개로 쪼갭니다.
+번호 매기기 금지. 하나의 이야기 흐름으로 이어갑니다.
+습니다 까요 혼합체. 습니다체 기본에 중간중간 까요체로 질문을 던집니다.
+감정 곡선 설계. 충격 공감 분노 반전 여운 순서.
+중간 고리. 오 초마다 새로운 미끼를 던집니다.
+마무리. 묵직한 여운형 또는 다음 편 유도형.
+반복 시청 유도. 마지막 문장의 끝이 첫 문장의 시작과 자연스럽게 이어지게 합니다.
+
+대본 작성 규칙:
+각 편당 최소 팔 문장 최대 십오 문장.
+마침표만 사용합니다. 물음표 느낌표 특수기호 금지.
+모든 영어와 외래어는 한글 순화어로 교체합니다.
+모든 숫자는 한글로 표기합니다.
+구어체를 사용합니다.
+대본 안에 역할 표시 금지. 내레이션 진행자 등의 단어 금지.
+금지어: 안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다, 다음에 또, 좋은 영상, 찾아오겠습니다.
+
+이미지 프롬프트 규칙:
+장면 수는 대사 문장 수와 일대일 매칭입니다.
+모든 프롬프트의 맨 앞에 반드시 SD 2D anime style,을 붙입니다.
+주인공이 등장하는 장면은 맨 뒤에 반드시 main character exactly matching the uploaded reference image, same face, same hairstyle, same features, consistent character design, 9:16 vertical aspect ratio를 붙입니다.
+주인공이 등장하지 않는 장면은 맨 뒤에 반드시 9:16 vertical aspect ratio를 붙입니다.
+
+장면 유형 판단 규칙:
+유형 가. 대상 설명 장면. 주인공 없음. 문장의 주어가 건물 제품 기계 회사 데이터 등일 때.
+유형 나. 실제 인물 장면. 주인공 없음. 문장의 주어가 실제 유명인일 때.
+유형 다. 주인공 시점 장면. 주인공 등장. 나레이션 시점 리액션 질문 의문 감상 해석 시청자에게 말을 거는 장면.
+
+주인공 복장 규칙:
+주인공은 상황에 맞는 복장을 입습니다. 같은 맥락이면 복장 유지. 한 편 안에서 복장 변경은 최대 한 번.
+
+한글 간판 규칙:
+장면 내용과 연관된 한글 간판을 자연스럽게 배치합니다. 내용과 무관한 간판은 넣지 않습니다.
+
+감정 표현:
+충격은 wide eyes dropped jaw sweat drops.
+분노는 cross mark on forehead red aura fire effect.
+슬픔은 tears flowing blue aura rain clouds.
+두려움은 shaking blue pale face ghost effect.
+
+출력 형식을 반드시 정확히 따르세요:
+
 =001=
-제목: (50자 이내)
-상단제목첫째줄: (15자 이내)
-상단제목둘째줄: (15자 이내)
-설명글: (200자, 해시태그 3~5개 포함)
-태그: (쉼표 구분 15~20개)
-순수대본: (문장만 나열. 마침표로 구분)
+
+제목: (오십 자 이내. 숫자는 아라비아 숫자)
+
+상단제목 첫째 줄: (십오 자 이내)
+상단제목 둘째 줄: (십오 자 이내)
+
+설명글: (약 이백 자)
+
+태그: (쉼표로 구분. 십오 개에서 이십 개. 해시태그 기호 금지)
+
+순수 대본:
+(문장만 마침표로 나열. 역할 표시 없음. 번호 없음.)
+
 =장면001=
 대사: (첫 번째 문장)
-프롬프트: SD 2D anime style, (영어 장면 묘사), 9:16 vertical aspect ratio
+프롬프트: SD 2D anime style, (장면 묘사), (접미어 규칙에 따라 마무리)
+
 =장면002=
 대사: (두 번째 문장)
-프롬프트: SD 2D anime style, (영어 장면 묘사), 9:16 vertical aspect ratio
-(문장 수만큼 반복)
+프롬프트: SD 2D anime style, (장면 묘사), (접미어 규칙에 따라 마무리)
+
+(대사 문장 수만큼 장면 반복)
+
 =002=
-(동일 형식)
+(동일한 형식)
+
 =003=
-(동일 형식)"""
+(동일한 형식)
 
-                raw_str = safe_generate(prompt)
+마지막 장면 프롬프트 출력 후 바로 끝냅니다. 추가 멘트 금지."""
 
-                if raw_str:
-                    st.session_state.shorts_raw = raw_str
-                    episodes = []
-                    blocks = re.split(r'=0*(\d+)=', raw_str)
-                    i = 1
-                    while i < len(blocks) - 1:
-                        num_str = blocks[i].strip()
-                        content = blocks[i + 1].strip()
-                        ep = {"num": num_str, "raw": content}
-                        for f, p in [("title", r'제목:\s*(.+)'), ("top_line1", r'상단제목첫째줄:\s*(.+)'),
-                                     ("top_line2", r'상단제목둘째줄:\s*(.+)'), ("tags", r'태그:\s*(.+)')]:
-                            m = re.search(p, content)
-                            ep[f] = m.group(1).strip() if m else ""
-                        if not ep.get("title"):
-                            ep["title"] = f"쇼츠 {num_str}편"
-                        m = re.search(r'설명글:\s*(.+?)(?=\n태그:|\n=장면|\n순수대본)', content, re.DOTALL)
-                        ep["description"] = m.group(1).strip() if m else ""
-                        m = re.search(r'순수대본:\s*(.+?)(?=\n=장면)', content, re.DOTALL)
-                        ep["script"] = m.group(1).strip() if m else ""
-                        scenes = re.findall(
-                            r'=장면\d+=\s*대사:\s*(.+?)\s*프롬프트:\s*(.+?)(?=\n=장면|\n=0|$)', content, re.DOTALL)
-                        ep["scenes"] = [{"dialogue": d.strip(), "prompt": p.strip()} for d, p in scenes]
-                        episodes.append(ep)
-                        i += 2
-                    st.session_state.shorts_data = episodes
-                else:
-                    st.error("쇼츠 생성 실패: 응답이 비어있습니다.")
+            with st.spinner("쇼츠 3편 세트 생성 중..."):
+                raw = safe_generate(shorts_prompt)
 
-    # ── 쇼츠 표시 (편별 카드) ──
-    if st.session_state.shorts_data:
-        with st.expander("AI 원본 응답"):
-            st.code(st.session_state.shorts_raw)
+            if raw:
+                st.session_state.shorts_raw = raw
 
-        for ep in st.session_state.shorts_data:
-            st.divider()
-            with st.container(border=True):
-                # 제목 + 상단제목
-                st.markdown(f"### {ep['num']}편: {ep['title']}")
-                if ep.get("top_line1") or ep.get("top_line2"):
-                    st.markdown(f"""<div style="background:linear-gradient(135deg,#667eea,#764ba2);color:white;padding:10px 16px;border-radius:8px;text-align:center;font-weight:bold;margin:8px 0;">
-{ep.get('top_line1','')}<br>{ep.get('top_line2','')}</div>""", unsafe_allow_html=True)
+        if st.session_state.get("shorts_raw"):
+            raw = st.session_state.shorts_raw
 
-                # 태그
-                if ep.get("tags"):
-                    with st.container(border=True):
-                        st.markdown('<span style="background:linear-gradient(90deg,#667eea,#764ba2);color:#fff;padding:4px 12px;border-radius:8px;font-size:0.85em;font-weight:bold;">태그</span>', unsafe_allow_html=True)
-                        tags_html = ""
-                        for tag in ep["tags"].split(","):
-                            tag = tag.strip()
-                            if tag:
-                                tags_html += f'<span style="display:inline-block;background:#238636;color:#fff;padding:3px 10px;border-radius:12px;font-size:0.78em;margin:2px 3px;">{tag}</span>'
-                        st.markdown(tags_html, unsafe_allow_html=True)
+            import re as _re
 
-                # 설명글
-                if ep.get("description"):
-                    with st.container(border=True):
-                        st.markdown('<span style="background:linear-gradient(90deg,#667eea,#764ba2);color:#fff;padding:4px 12px;border-radius:8px;font-size:0.85em;font-weight:bold;">설명글</span>', unsafe_allow_html=True)
-                        st.markdown(f'<div style="background:#1e293b;border-radius:8px;padding:12px;color:#cbd5e1;font-size:0.9em;line-height:1.6;margin-top:6px;">{ep["description"]}</div>', unsafe_allow_html=True)
+            def clean_special_shorts(text):
+                text = text.replace("#", "").replace("*", "").replace("_", "")
+                text = text.replace("!", "").replace("?", "").replace(";", "")
+                text = text.replace("~", "").replace("`", "").replace('"', "")
+                text = text.replace("'", "").replace("(", "").replace(")", "")
+                text = text.replace("[", "").replace("]", "").replace("{", "").replace("}", "")
+                text = text.replace("<", "").replace(">", "").replace("|", "")
+                text = text.replace("@", "").replace("$", "").replace("%", "")
+                text = text.replace("^", "").replace("&", "").replace("+", "").replace("=", "")
+                return text.strip()
 
-                # 대본
-                with st.container(border=True):
-                    st.markdown('<span style="background:linear-gradient(90deg,#667eea,#764ba2);color:#fff;padding:4px 12px;border-radius:8px;font-size:0.85em;font-weight:bold;">대본 (40초)</span>', unsafe_allow_html=True)
-                    script_text = ep.get("script", "(없음)")
-                    st.markdown(f'<div style="background:#0d1117;border:1px solid #30363d;border-radius:8px;padding:16px;font-size:0.95em;line-height:1.8;color:#e6edf3;white-space:pre-wrap;margin-top:6px;">{script_text}</div>', unsafe_allow_html=True)
-                    if script_text:
-                        st.caption(f"{len(script_text)}자")
+            shorts_list = []
+            parts = _re.split(r'=00(\d)=', raw)
 
-                # 장면 프롬프트
-                if ep.get("scenes"):
-                    with st.expander(f"장면 프롬프트 ({len(ep['scenes'])}개)"):
-                        for j, s in enumerate(ep["scenes"]):
-                            st.markdown(f"**장면 {j+1}**")
-                            st.write(f"대사: {s['dialogue']}")
-                            st.code(s["prompt"], language="text")
+            i = 1
+            while i < len(parts) - 1:
+                ep_num = parts[i].strip()
+                ep_content = parts[i + 1]
+                i += 2
 
-        st.download_button("쇼츠 3편 다운로드", st.session_state.shorts_raw,
-                           f"shorts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+                def get_field(content, field_name, next_fields):
+                    for nf in next_fields:
+                        pattern = f"{field_name}[:\\s]*(.*?)(?={nf})"
+                        m = _re.search(pattern, content, _re.DOTALL)
+                        if m:
+                            return m.group(1).strip()
+                    pattern = f"{field_name}[:\\s]*(.*)"
+                    m = _re.search(pattern, content, _re.DOTALL)
+                    if m:
+                        return m.group(1).strip()
+                    return ""
+
+                title = clean_special_shorts(get_field(ep_content, "제목", ["상단제목", "설명글", "태그", "순수 대본"]))
+                top1 = clean_special_shorts(get_field(ep_content, "상단제목 첫째 줄", ["상단제목 둘째 줄", "설명글", "태그"]))
+                top2 = clean_special_shorts(get_field(ep_content, "상단제목 둘째 줄", ["설명글", "태그", "순수 대본"]))
+                desc = clean_special_shorts(get_field(ep_content, "설명글", ["태그", "순수 대본"]))
+                tags = clean_special_shorts(get_field(ep_content, "태그", ["순수 대본", "=장면"]))
+
+                script_match = _re.search(r'순수 대본[:\s]*(.*?)(?==장면)', ep_content, _re.DOTALL)
+                script = clean_special_shorts(script_match.group(1)) if script_match else ""
+
+                scenes = []
+                scene_blocks = _re.findall(r'=장면\d+=\s*대사[:\s]*(.*?)프롬프트[:\s]*(.*?)(?==장면|\Z)', ep_content, _re.DOTALL)
+                for sb in scene_blocks:
+                    line_text = clean_special_shorts(sb[0])
+                    prompt_text = sb[1].strip()
+                    scenes.append({"대사": line_text, "프롬프트": prompt_text})
+
+                shorts_list.append({
+                    "번호": ep_num,
+                    "제목": title,
+                    "상단1": top1,
+                    "상단2": top2,
+                    "설명글": desc,
+                    "태그": tags,
+                    "대본": script,
+                    "장면": scenes
+                })
+
+            st.session_state.shorts_list = shorts_list
+
+            for idx, ep in enumerate(shorts_list):
+                st.markdown("---")
+                st.markdown(f"### 쇼츠 {ep['번호']}편")
+
+                st.markdown("**제목**")
+                st.code(ep["제목"], language=None)
+
+                st.markdown("**상단제목**")
+                st.code(f"{ep['상단1']}\n{ep['상단2']}", language=None)
+
+                st.markdown("**설명글**")
+                st.code(ep["설명글"], language=None)
+
+                st.markdown("**태그**")
+                st.code(ep["태그"], language=None)
+
+                st.markdown("**대본**")
+                st.code(ep["대본"], language=None)
+
+                if ep["장면"]:
+                    with st.expander(f"장면 프롬프트 ({len(ep['장면'])}개)", expanded=False):
+                        for si, scene in enumerate(ep["장면"]):
+                            st.markdown(f"**장면 {si+1}**")
+                            st.code(f"대사: {scene['대사']}\n프롬프트: {scene['프롬프트']}", language=None)
+
+            all_sentences = []
+            for ep in shorts_list:
+                sents = [s.strip() for s in ep["대본"].split(".") if s.strip()]
+                all_sentences.extend(sents)
+            st.session_state.shorts_sentences = all_sentences
+            st.caption(f"전체 쇼츠 문장 수: {len(all_sentences)}")
+
 
 
 # ═══ 탭4: 이미지 생성 (Skywork) ═══

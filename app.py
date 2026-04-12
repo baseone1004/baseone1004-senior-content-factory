@@ -751,6 +751,16 @@ with tab3:
     else:
         st.success(f"선택된 주제: {st.session_state.selected_topic}")
 
+        st.markdown("---")
+        st.markdown("**롱폼 영상 링크 설정**")
+        long_link = st.text_input(
+            "롱폼 유튜브 링크를 입력하면 고정댓글에 자동 삽입됩니다",
+            value=st.session_state.get("long_video_link", ""),
+            key="long_link_input",
+            placeholder="https://youtu.be/xxxxxxxxx"
+        )
+        st.session_state.long_video_link = long_link
+
         if st.button("쇼츠 3편 세트 생성", key="gen_shorts"):
             topic = st.session_state.selected_topic
             category = st.session_state.get("selected_category", "경제/사회")
@@ -821,6 +831,14 @@ with tab3:
 슬픔은 tears flowing blue aura rain clouds.
 두려움은 shaking blue pale face ghost effect.
 
+고정댓글 작성 규칙:
+각 편마다 고정댓글을 하나씩 작성합니다.
+고정댓글은 해당 쇼츠의 핵심 내용을 두세 줄로 요약하고 궁금증을 자극하는 문장으로 끝냅니다.
+마지막에 롱폼 영상 유도 문장을 넣습니다.
+롱폼 유도 문장 형식: 더 자세한 이야기가 궁금하다면 여기서 확인하세요 LONGFORM_LINK
+LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에 실제 링크로 교체합니다.
+특수기호 금지. 이모지 금지. 해시태그 금지.
+
 출력 형식을 반드시 정확히 따르세요:
 
 =001=
@@ -833,6 +851,9 @@ with tab3:
 설명글: (약 이백 자)
 
 태그: (쉼표로 구분. 십오 개에서 이십 개. 해시태그 기호 금지)
+
+고정댓글:
+(두세 줄 요약 플러스 롱폼 유도 문장)
 
 순수 대본:
 (문장만 마침표로 나열. 역할 표시 없음. 번호 없음.)
@@ -898,11 +919,21 @@ with tab3:
                         return m.group(1).strip()
                     return ""
 
-                title = clean_special_shorts(get_field(ep_content, "제목", ["상단제목", "설명글", "태그", "순수 대본"]))
+                title = clean_special_shorts(get_field(ep_content, "제목", ["상단제목", "설명글", "태그", "고정댓글", "순수 대본"]))
                 top1 = clean_special_shorts(get_field(ep_content, "상단제목 첫째 줄", ["상단제목 둘째 줄", "설명글", "태그"]))
-                top2 = clean_special_shorts(get_field(ep_content, "상단제목 둘째 줄", ["설명글", "태그", "순수 대본"]))
-                desc = clean_special_shorts(get_field(ep_content, "설명글", ["태그", "순수 대본"]))
-                tags = clean_special_shorts(get_field(ep_content, "태그", ["순수 대본", "=장면"]))
+                top2 = clean_special_shorts(get_field(ep_content, "상단제목 둘째 줄", ["설명글", "태그", "고정댓글", "순수 대본"]))
+                desc = clean_special_shorts(get_field(ep_content, "설명글", ["태그", "고정댓글", "순수 대본"]))
+                tags = clean_special_shorts(get_field(ep_content, "태그", ["고정댓글", "순수 대본", "=장면"]))
+
+                pinned_raw = get_field(ep_content, "고정댓글", ["순수 대본", "=장면"])
+                pinned = clean_special_shorts(pinned_raw)
+                actual_link = st.session_state.get("long_video_link", "")
+                if actual_link:
+                    pinned = pinned.replace("LONGFORM_LINK", actual_link)
+                    pinned = pinned.replace("LONGFORMLINK", actual_link)
+                else:
+                    pinned = pinned.replace("LONGFORM_LINK", "(롱폼 링크를 위에서 입력하세요)")
+                    pinned = pinned.replace("LONGFORMLINK", "(롱폼 링크를 위에서 입력하세요)")
 
                 script_match = _re.search(r'순수 대본[:\s]*(.*?)(?==장면)', ep_content, _re.DOTALL)
                 script = clean_special_shorts(script_match.group(1)) if script_match else ""
@@ -921,6 +952,7 @@ with tab3:
                     "상단2": top2,
                     "설명글": desc,
                     "태그": tags,
+                    "고정댓글": pinned,
                     "대본": script,
                     "장면": scenes
                 })
@@ -943,6 +975,13 @@ with tab3:
                 st.markdown("**태그**")
                 st.code(ep["태그"], language=None)
 
+                st.markdown("**고정댓글**")
+                pinned_display = ep["고정댓글"]
+                current_link = st.session_state.get("long_video_link", "")
+                if current_link and current_link != long_link:
+                    pinned_display = pinned_display.replace(current_link, long_link) if current_link else pinned_display
+                st.code(pinned_display, language=None)
+
                 st.markdown("**대본**")
                 st.code(ep["대본"], language=None)
 
@@ -958,6 +997,23 @@ with tab3:
                 all_sentences.extend(sents)
             st.session_state.shorts_sentences = all_sentences
             st.caption(f"전체 쇼츠 문장 수: {len(all_sentences)}")
+
+            st.markdown("---")
+            st.markdown("**롱폼 링크 업데이트**")
+            new_link = st.text_input(
+                "롱폼 업로드 후 링크가 바뀌었다면 여기에 다시 입력하세요",
+                value=st.session_state.get("long_video_link", ""),
+                key="long_link_update"
+            )
+            if new_link != st.session_state.get("long_video_link", ""):
+                st.session_state.long_video_link = new_link
+                for ep in st.session_state.shorts_list:
+                    pinned = ep.get("고정댓글", "")
+                    pinned = _re.sub(r'https?://\S+', new_link, pinned)
+                    if "롱폼 링크를 위에서 입력하세요" in pinned:
+                        pinned = pinned.replace("(롱폼 링크를 위에서 입력하세요)", new_link)
+                    ep["고정댓글"] = pinned
+                st.rerun()
 
 
 

@@ -1,5 +1,4 @@
 import os
-import streamlit as st
 
 try:
     from dotenv import load_dotenv
@@ -20,15 +19,23 @@ class APIHandler:
         self.inworld = InworldHandler()
         self.naver = NaverNewsHandler()
 
-    def test_connection(self):
-        sk_ok, sk_msg = self.skywork.test_connection()
-        iw_ok, iw_msg = self.inworld.test_connection()
-        nv_ok, nv_msg = self.naver.test_connection()
-        kie_key = self.kie.api_key
-        kie_ok = bool(kie_key and "여기에" not in kie_key)
+    def test_all(self):
+        results = {}
+        ok, msg = self.skywork.test_connection()
+        results["skywork"] = (ok, msg)
+        ok, msg = self.naver.test_connection()
+        results["naver"] = (ok, msg)
+        kie_ok = bool(self.kie.api_key)
         kie_msg = "Kie AI 키 설정됨" if kie_ok else "Kie AI 키 미설정"
-        combined = f"스카이워크: {sk_msg}\n인월드: {iw_msg}\nKie: {kie_msg}\n네이버: {nv_msg}"
-        all_ok = sk_ok and iw_ok and nv_ok and kie_ok
+        results["kie"] = (kie_ok, kie_msg)
+        ok, msg = self.inworld.test_connection()
+        results["inworld"] = (ok, msg)
+        return results
+
+    def test_connection(self):
+        r = self.test_all()
+        all_ok = all(v[0] for v in r.values())
+        combined = "\n".join(f"{k}: {v[1]}" for k, v in r.items())
         return all_ok, combined
 
     def generate(self, prompt, max_tokens=8192):

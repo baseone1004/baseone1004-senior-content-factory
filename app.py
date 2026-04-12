@@ -646,27 +646,107 @@ with tab1:
 
 # ═══ 탭2: 롱폼 대본 ═══
 with tab2:
-    st.subheader("롱폼 대본 생성")
+    st.subheader("롱폼 대본 생성 (30~40분 분량)")
 
     if not st.session_state.get("selected_topic"):
         st.info("탭1에서 주제를 먼저 선택하세요.")
     else:
         st.success(f"선택된 주제: {st.session_state.selected_topic}")
 
-        if st.button("롱폼 대본 생성", key="gen_long"):
-            topic = st.session_state.selected_topic
-            category = st.session_state.get("selected_category", "경제/사회")
+        def clean_special(text):
+            for ch in '#*_!?;~`"\'()[]{}<>|@$%^&+=':
+                text = text.replace(ch, "")
+            return text.strip()
 
-            long_prompt = f"""당신은 유튜브 롱폼 영상 전문 대본 작가입니다.
+        def build_structure_prompt(topic, category):
+            return f"""당신은 유튜브 롱폼 삼십 분에서 사십 분 분량 전문 대본 작가입니다.
 
 주제: {topic}
 카테고리: {category}
 
-아래 규칙을 반드시 지키세요.
+지금은 대본을 쓰지 마세요. 전체 구조만 잡습니다.
 
-출력형식 규칙:
-제목과 태그와 설명과 대본을 아래 구분자로 정확히 나누어 출력하세요.
+아래 규칙을 따르세요.
+전체를 여덟 개 파트로 나눕니다.
+각 파트는 사 분에서 오 분 분량입니다.
+파트마다 소제목과 다룰 핵심 내용을 세 줄로 요약합니다.
 
+출력 형식:
+===구조===
+파트일. (소제목)
+핵심하나. (내용)
+핵심둘. (내용)
+핵심셋. (내용)
+
+파트이. (소제목)
+핵심하나. (내용)
+핵심둘. (내용)
+핵심셋. (내용)
+
+(파트삼부터 파트팔까지 동일 형식)
+
+감정 곡선 설계:
+파트일은 충격적 도입으로 시작합니다.
+파트이와 삼은 배경과 원인을 깊게 파고듭니다.
+파트사와 오는 핵심 사건과 갈등을 다룹니다.
+파트육은 반전이나 새로운 사실을 드러냅니다.
+파트칠은 현재 상황과 영향을 정리합니다.
+파트팔은 묵직한 여운으로 마무리합니다.
+
+구조만 출력하고 끝내세요."""
+
+        def build_part_prompt(topic, category, structure, part_num, prev_last_lines=""):
+            continuation = ""
+            if prev_last_lines:
+                continuation = f"""직전 파트의 마지막 세 문장:
+{prev_last_lines}
+
+위 문장에 자연스럽게 이어지도록 씁니다. 같은 내용을 반복하지 않습니다."""
+
+            return f"""당신은 유튜브 롱폼 전문 대본 작가입니다.
+
+주제: {topic}
+카테고리: {category}
+
+전체 구조:
+{structure}
+
+지금은 파트{part_num}만 씁니다.
+이 파트는 사 분에서 오 분 분량입니다.
+문장 수는 삼십 문장에서 사십오 문장 사이로 합니다.
+
+{continuation}
+
+대본 작성 규칙:
+마침표만 사용합니다. 물음표 느낌표 특수기호 금지.
+습니다체를 기본으로 깔되 중간중간 까요체로 질문을 던집니다.
+모든 영어와 외래어는 한글 순화어로 교체합니다.
+모든 숫자는 한글로 표기합니다.
+역할 표시 금지. 내레이션이라는 단어 금지. 진행자라는 단어 금지.
+번호 매기기 금지. 하나의 이야기 흐름으로 씁니다.
+소제목 금지. 대본 중간에 소제목을 넣지 않습니다.
+한 문장은 열다섯 자에서 쉰 자 사이로 합니다. 쉰 자 넘으면 두 개로 쪼갭니다.
+사용 접속사는 근데 그래서 결국 알고 보니 문제는. 피해야 하는 접속사는 그리고 또한 뿐만 아니라 한편.
+같은 감정이 세 문장 연속으로 이어지면 중간에 반드시 다른 감정을 끼워 넣습니다.
+금지어: 안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다, 다음에 또, 좋은 영상, 찾아오겠습니다.
+
+파트일이면 첫 문장은 현장감 있는 묘사로 시작합니다. 인사 금지. 자기소개 금지.
+파트팔이면 마지막 문장은 묵직한 여운으로 끝냅니다.
+
+출력 형식:
+===파트{part_num}===
+(순수 대사만. 문장을 마침표로 나열. 그 외 아무것도 넣지 않습니다.)"""
+
+        def build_meta_prompt(topic, category, full_script_preview):
+            return f"""주제: {topic}
+카테고리: {category}
+
+아래는 완성된 롱폼 대본의 앞부분 발췌입니다:
+{full_script_preview}
+
+이 대본에 맞는 제목과 태그와 설명을 작성하세요.
+
+출력 형식:
 ===제목===
 제목을 한 줄로 씁니다. 오십 자 이내. 특수기호 금지.
 
@@ -674,55 +754,116 @@ with tab2:
 쉼표로 구분. 십오 개에서 이십 개. 특수기호 금지. 해시태그 기호 금지.
 
 ===설명===
-약 이백 자. 특수기호 금지. 해시태그 기호 금지.
+약 삼백 자. 특수기호 금지. 해시태그 기호 금지. 영상의 핵심 내용을 요약하고 시청자의 궁금증을 자극하는 문장으로 마무리합니다."""
 
-===대본===
-순수 대사만 씁니다. 역할 표시 금지. 내레이션이라는 단어 금지. 진행자라는 단어 금지. 번호 매기기 금지.
-마침표만 사용합니다. 물음표와 느낌표와 특수기호를 사용하지 않습니다.
-습니다체를 기본으로 깔되 중간중간 까요체로 질문을 던집니다.
-모든 영어와 외래어는 한글 순화어로 교체합니다.
-모든 숫자는 한글로 표기합니다.
-첫 문장부터 현장감 있게 시작합니다. 인사하지 않습니다. 자기소개하지 않습니다.
-금지어: 안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다, 다음에 또, 좋은 영상, 찾아오겠습니다.
-마지막 문장은 묵직한 여운으로 끝냅니다.
-전체 분량은 사십 문장에서 육십 문장 사이로 합니다."""
+        if "long_structure" not in st.session_state:
+            st.session_state.long_structure = ""
+        if "long_parts" not in st.session_state:
+            st.session_state.long_parts = {}
+        if "long_gen_step" not in st.session_state:
+            st.session_state.long_gen_step = 0
+        if "long_title" not in st.session_state:
+            st.session_state.long_title = ""
+        if "long_tags" not in st.session_state:
+            st.session_state.long_tags = ""
+        if "long_desc" not in st.session_state:
+            st.session_state.long_desc = ""
+        if "long_script" not in st.session_state:
+            st.session_state.long_script = ""
 
-            with st.spinner("롱폼 대본 생성 중..."):
-                raw = safe_generate(long_prompt)
+        topic = st.session_state.selected_topic
+        category = st.session_state.get("selected_category", "경제/사회")
 
-            if raw:
-                import re as _re
+        col_a, col_b = st.columns(2)
+        with col_a:
+            if st.button("전체 자동 생성 (구조부터 파트팔까지)", key="gen_long_auto"):
+                st.session_state.long_parts = {}
+                st.session_state.long_structure = ""
+                st.session_state.long_gen_step = 0
 
-                def clean_special(text):
-                    text = text.replace("#", "").replace("*", "").replace("_", "")
-                    text = text.replace("!", "").replace("?", "").replace(";", "")
-                    text = text.replace("~", "").replace("`", "").replace('"', "")
-                    text = text.replace("'", "").replace("(", "").replace(")", "")
-                    text = text.replace("[", "").replace("]", "").replace("{", "").replace("}", "")
-                    text = text.replace("<", "").replace(">", "").replace("|", "")
-                    text = text.replace("@", "").replace("$", "").replace("%", "")
-                    text = text.replace("^", "").replace("&", "").replace("+", "").replace("=", "")
-                    return text.strip()
+                progress = st.progress(0, text="구조 생성 중...")
+                structure_raw = safe_generate(build_structure_prompt(topic, category))
+                if not structure_raw:
+                    st.error("구조 생성 실패")
+                else:
+                    st.session_state.long_structure = structure_raw
+                    progress.progress(10, text="구조 완성")
 
-                def extract_section(text, start_marker, end_marker=None):
-                    try:
-                        s = text.split(start_marker)[1]
-                        if end_marker:
-                            s = s.split(end_marker)[0]
-                        return s.strip()
-                    except:
-                        return ""
+                    part_names = ["일", "이", "삼", "사", "오", "육", "칠", "팔"]
+                    prev_last = ""
 
-                title = clean_special(extract_section(raw, "===제목===", "===태그==="))
-                tags = clean_special(extract_section(raw, "===태그===", "===설명==="))
-                desc = clean_special(extract_section(raw, "===설명===", "===대본==="))
-                script = clean_special(extract_section(raw, "===대본==="))
+                    for pi, pname in enumerate(part_names):
+                        progress.progress(
+                            10 + int((pi / 8) * 80),
+                            text=f"파트{pname} 생성 중... ({pi+1}/8)"
+                        )
+                        part_prompt = build_part_prompt(
+                            topic, category,
+                            st.session_state.long_structure,
+                            pname, prev_last
+                        )
+                        part_raw = safe_generate(part_prompt)
+                        if part_raw:
+                            marker = f"===파트{pname}==="
+                            if marker in part_raw:
+                                part_text = part_raw.split(marker)[1].strip()
+                            else:
+                                part_text = part_raw.strip()
+                            part_text = clean_special(part_text)
+                            st.session_state.long_parts[pname] = part_text
 
-                st.session_state.long_title = title
-                st.session_state.long_tags = tags
-                st.session_state.long_desc = desc
-                st.session_state.long_script = script
-                st.session_state.long_raw = raw
+                            sentences = [s.strip() for s in part_text.split(".") if s.strip()]
+                            if len(sentences) >= 3:
+                                prev_last = ". ".join(sentences[-3:]) + "."
+                            else:
+                                prev_last = part_text
+                        else:
+                            st.warning(f"파트{pname} 생성 실패. 건너뜁니다.")
+                            prev_last = ""
+
+                        time.sleep(1)
+
+                    progress.progress(90, text="제목 태그 설명 생성 중...")
+                    full_script = ""
+                    for pname in part_names:
+                        if pname in st.session_state.long_parts:
+                            full_script += st.session_state.long_parts[pname] + " "
+                    full_script = full_script.strip()
+                    st.session_state.long_script = full_script
+
+                    preview = full_script[:1500]
+                    meta_raw = safe_generate(build_meta_prompt(topic, category, preview))
+                    if meta_raw:
+                        def extract_section(text, start, end=None):
+                            try:
+                                s = text.split(start)[1]
+                                if end:
+                                    s = s.split(end)[0]
+                                return s.strip()
+                            except:
+                                return ""
+
+                        st.session_state.long_title = clean_special(extract_section(meta_raw, "===제목===", "===태그==="))
+                        st.session_state.long_tags = clean_special(extract_section(meta_raw, "===태그===", "===설명==="))
+                        st.session_state.long_desc = clean_special(extract_section(meta_raw, "===설명==="))
+
+                    progress.progress(100, text="완성")
+                    sentences = [s.strip() for s in full_script.split(".") if s.strip()]
+                    st.session_state.long_sentences = sentences
+                    st.session_state.long_gen_step = 9
+
+        with col_b:
+            if st.session_state.long_parts:
+                if st.button("대본 초기화", key="reset_long"):
+                    st.session_state.long_structure = ""
+                    st.session_state.long_parts = {}
+                    st.session_state.long_gen_step = 0
+                    st.session_state.long_title = ""
+                    st.session_state.long_tags = ""
+                    st.session_state.long_desc = ""
+                    st.session_state.long_script = ""
+                    st.session_state.long_sentences = []
+                    st.rerun()
 
         if st.session_state.get("long_title"):
             st.markdown("---")
@@ -735,12 +876,74 @@ with tab2:
             st.markdown("**설명**")
             st.code(st.session_state.long_desc, language=None)
 
-            st.markdown("**대본**")
-            st.code(st.session_state.long_script, language=None)
+        if st.session_state.long_parts:
+            st.markdown("---")
+            st.markdown("**전체 대본**")
 
-            sentences = [s.strip() for s in st.session_state.long_script.split(".") if s.strip()]
-            st.session_state.long_sentences = sentences
-            st.caption(f"총 {len(sentences)}문장")
+            part_names = ["일", "이", "삼", "사", "오", "육", "칠", "팔"]
+            full_display = ""
+            for pname in part_names:
+                if pname in st.session_state.long_parts:
+                    full_display += st.session_state.long_parts[pname] + "\n\n"
+
+            st.code(full_display.strip(), language=None)
+
+            total_sentences = [s.strip() for s in st.session_state.get("long_script", "").split(".") if s.strip()]
+            total_chars = len(st.session_state.get("long_script", ""))
+            est_minutes = round(total_chars / 280, 1)
+            st.caption(f"총 {len(total_sentences)}문장 / 약 {total_chars}자 / 예상 {est_minutes}분 분량")
+
+            st.markdown("---")
+            st.markdown("**파트별 보기**")
+            for pname in part_names:
+                if pname in st.session_state.long_parts:
+                    part_text = st.session_state.long_parts[pname]
+                    part_sents = [s.strip() for s in part_text.split(".") if s.strip()]
+                    with st.expander(f"파트{pname} ({len(part_sents)}문장)", expanded=False):
+                        st.code(part_text, language=None)
+
+            st.markdown("---")
+            st.markdown("**개별 파트 재생성**")
+            regen_part = st.selectbox(
+                "재생성할 파트 선택",
+                ["선택하세요"] + [f"파트{p}" for p in part_names if p in st.session_state.long_parts],
+                key="regen_select"
+            )
+            if regen_part != "선택하세요" and st.button("선택한 파트 재생성", key="regen_part_btn"):
+                pname = regen_part.replace("파트", "")
+                pname_idx = part_names.index(pname)
+
+                prev_last = ""
+                if pname_idx > 0:
+                    prev_pname = part_names[pname_idx - 1]
+                    if prev_pname in st.session_state.long_parts:
+                        prev_sents = [s.strip() for s in st.session_state.long_parts[prev_pname].split(".") if s.strip()]
+                        if len(prev_sents) >= 3:
+                            prev_last = ". ".join(prev_sents[-3:]) + "."
+
+                with st.spinner(f"파트{pname} 재생성 중..."):
+                    part_prompt = build_part_prompt(
+                        topic, category,
+                        st.session_state.long_structure,
+                        pname, prev_last
+                    )
+                    part_raw = safe_generate(part_prompt)
+                    if part_raw:
+                        marker = f"===파트{pname}==="
+                        if marker in part_raw:
+                            part_text = part_raw.split(marker)[1].strip()
+                        else:
+                            part_text = part_raw.strip()
+                        part_text = clean_special(part_text)
+                        st.session_state.long_parts[pname] = part_text
+
+                        full_script = ""
+                        for p in part_names:
+                            if p in st.session_state.long_parts:
+                                full_script += st.session_state.long_parts[p] + " "
+                        st.session_state.long_script = full_script.strip()
+                        st.session_state.long_sentences = [s.strip() for s in full_script.split(".") if s.strip()]
+                        st.rerun()
 
 # ═══ 탭3: 쇼츠 대본 ═══
 with tab3:

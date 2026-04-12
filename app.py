@@ -51,6 +51,82 @@ def sync_topic():
         st.session_state["shorts_topic"] = t
 
 
+# ── 네이버 뉴스 안전 호출 헬퍼 ──
+def safe_naver_search(keyword, count):
+    """네이버 뉴스 핸들러의 다양한 메서드 시그니처에 대응"""
+    news_items = []
+    raw_result = None
+
+    # 방법1: search(keyword, display=count)
+    try:
+        raw_result = api.naver.search(keyword, display=count)
+    except TypeError:
+        pass
+    except AttributeError:
+        pass
+    except Exception:
+        pass
+
+    # 방법2: search_trending_topics([keyword], count)
+    if raw_result is None:
+        try:
+            raw_result = api.naver.search_trending_topics([keyword], count)
+        except TypeError:
+            try:
+                raw_result = api.naver.search_trending_topics(keyword, count)
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    # 방법3: search_news(keyword, count)
+    if raw_result is None:
+        try:
+            raw_result = api.naver.search_news(keyword, count)
+        except Exception:
+            pass
+
+    if raw_result is None:
+        return []
+
+    # 결과 정규화: 어떤 형태든 딕셔너리 리스트로 변환
+    if isinstance(raw_result, dict):
+        # {"items": [...]} 형태
+        if "items" in raw_result:
+            news_items = raw_result["items"]
+        # {"news": [...]} 형태
+        elif "news" in raw_result:
+            news_items = raw_result["news"]
+        # {"results": [...]} 형태
+        elif "results" in raw_result:
+            news_items = raw_result["results"]
+        else:
+            # 딕셔너리 자체가 하나의 뉴스 항목
+            news_items = [raw_result]
+    elif isinstance(raw_result, list):
+        news_items = raw_result
+    elif isinstance(raw_result, str):
+        # 문자열이면 줄 단위로 분리
+        lines = [l.strip() for l in raw_result.split("\n") if l.strip()]
+        news_items = [{"title": l, "description": ""} for l in lines]
+    else:
+        return []
+
+    # 각 item을 안전하게 딕셔너리로 변환
+    safe_items = []
+    for item in news_items:
+        if isinstance(item, dict):
+            safe_items.append(item)
+        elif isinstance(item, str):
+            safe_items.append({"title": item, "description": ""})
+        elif isinstance(item, (list, tuple)):
+            safe_items.append({"title": str(item[0]) if item else "", "description": str(item[1]) if len(item) > 1 else ""})
+        else:
+            safe_items.append({"title": str(item), "description": ""})
+
+    return safe_items
+
+
 # ── 사이드바 ──
 with st.sidebar:
     st.title("시니어 콘텐츠 팩토리")
@@ -73,11 +149,20 @@ with st.sidebar:
         if api:
             try:
                 result = api.test_connection()
-                for svc, status in result.items():
-                    if status.get("status") == "connected":
-                        st.success(f"{svc}: 연결됨")
-                    else:
-                        st.warning(f"{svc}: {status.get('message', '실패')}")
+                if isinstance(result, dict):
+                    for svc, status in result.items():
+                        if isinstance(status, dict) and status.get("status") == "connected":
+                            st.success(f"{svc}: 연결됨")
+                        elif isinstance(status, dict):
+                            st.warning(f"{svc}: {status.get('message', '실패')}")
+                        elif isinstance(status, bool) and status:
+                            st.success(f"{svc}: 연결됨")
+                        else:
+                            st.warning(f"{svc}: {status}")
+                elif isinstance(result, str):
+                    st.info(result)
+                else:
+                    st.success("API 연결 확인됨")
             except Exception as e:
                 st.error(f"테스트 실패: {e}")
 
@@ -113,20 +198,22 @@ with tab1:
             st.error("API가 연결되지 않았습니다")
         else:
             with st.spinner("네이버 뉴스 분석 중..."):
-                try:
-                    news = api.naver.search(keyword, display=news_count)
-                except Exception:
-                    try:
-                        news = api.naver.search_trending_topics(keyword, news_count)
-                    except Exception:
-                        news = []
+                # 안전한 뉴스 검색
+                news = safe_naver_search(keyword, news_count)
 
                 news_text = ""
                 if news:
                     for item in news[:news_count]:
-                        title = item.get("title", "")
-                        desc = item.get("description", "")
+                        title = item.get("title", "") if isinstance(item, dict) else str(item)
+                        desc = item.get("description", "") if isinstance(item, dict) else ""
+                        # HTML 태그 제거
+                        title = re.sub(r'<[^>]+>', '', str(title))
+                        desc = re.sub(r'<[^>]+>', '', str(desc))
                         news_text += f"- {title}: {desc}\n"
+
+                with st.expander("수집된 뉴스 데이터 (디버그)"):
+                    st.text(f"뉴스 항목 수: {len(news)}")
+                    st.text(news_text if news_text else "(뉴스 없음)")
 
                 prompt = f"""아래 뉴스 트렌드를 분석해서 유튜브 영상 주제 10개를 추천해줘.
 
@@ -149,7 +236,7 @@ with tab1:
                     st.error(f"AI 생성 실패: {e}")
 
                 with st.expander("AI 원본 응답 (디버그)"):
-                    st.code(raw)
+                    st.code(raw if raw else "(응답 없음)")
 
                 # 파싱
                 topics = []
@@ -160,13 +247,13 @@ with tab1:
                         if not line:
                             continue
                         # 다양한 패턴 매칭
-                        m = re.search(r'제목:\s*(.+?)[\|]', line)
+                        m = re.search(r'제목:\s*(.+?)(?:\||$)', line)
                         if m:
                             title_val = m.group(1).strip().strip("*").strip()
-                            prob_m = re.search(r'확률:\s*(.+?)[\|]', line)
-                            source_m = re.search(r'출처:\s*(.+?)[\|]', line)
-                            alt_m = re.search(r'대안:\s*(.+?)[\|]', line)
-                            tag_m = re.search(r'태그:\s*(.+)', line)
+                            prob_m = re.search(r'확률:\s*(.+?)(?:\||$)', line)
+                            source_m = re.search(r'출처:\s*(.+?)(?:\||$)', line)
+                            alt_m = re.search(r'대안:\s*(.+?)(?:\||$)', line)
+                            tag_m = re.search(r'태그:\s*(.+?)(?:\||$)', line)
                             topics.append({
                                 "title": title_val,
                                 "probability": prob_m.group(1).strip() if prob_m else "",
@@ -176,6 +263,9 @@ with tab1:
                             })
 
                     st.session_state.topics_list = topics
+
+                if not topics:
+                    st.warning("주제 파싱에 실패했습니다. 위 디버그 창에서 AI 응답을 확인하세요.")
 
     # 추천 주제 목록 표시 & 선택
     if st.session_state.topics_list:
@@ -321,46 +411,33 @@ with tab3:
 대본 핵심 원칙:
 - 인사 자기소개 구독 좋아요 언급 금지
 - 첫 문장은 현장 한가운데에 시청자를 던져 넣는 문장
-- 첫 세 문장 안에 열린 고리(질문은 던졌는데 답은 아직 안 준 상태) 설치
-- 접속사는 근데 그래서 결국 알고보니 문제는 사용. 그리고 또한 뿐만아니라 한편 금지
-- 한 문장 15~40자. 50자 넘으면 두 개로 쪼갬
-- 번호 매기기 금지. 하나의 이야기 흐름
-- 습니다체 기본 + 까요체 질문 혼합
-- 충격→공감→분노/안타까움→반전→여운 감정곡선
-- 5초마다 새 미끼 (근데 여기서 더 충격적인건요 / 알고보면 이게 끝이 아닙니다 등)
-- 마무리는 묵직한 여운 또는 다음 편 유도
-- 마지막 문장 끝이 첫 문장 시작과 자연스럽게 이어지게
-- 각 편 8~12문장 (40초 이내 분량)
-- 모든 영어/외래어는 한글로, 모든 숫자는 한글로
+- 첫 세 문장 안에 열린 고리 설치
+- 접속사는 근데 그래서 결국 알고보니 문제는 사용
+- 한 문장 15자에서 40자
+- 번호 매기기 금지
+- 습니다체 기본에 까요체 질문 혼합
+- 충격에서 공감에서 분노에서 반전에서 여운 감정곡선
+- 각 편 8문장에서 12문장 (40초 이내 분량)
+- 모든 영어와 숫자는 한글로
 - 특수기호는 마침표만 사용
 
 이미지 프롬프트 규칙:
-- 모든 프롬프트는 9:16 세로 비율
-- 장면 수 = 대사 문장 수 (1:1 매칭)
-- 모든 프롬프트 맨 앞에 반드시 SD 2D anime style, 붙임
-- 주인공 등장 장면은 맨 뒤에 main character exactly matching the uploaded reference image, same face, same hairstyle, same features, consistent character design, 9:16 vertical aspect ratio
-- 주인공 미등장 장면은 맨 뒤에 9:16 vertical aspect ratio
-- 대상설명/실제인물 장면 = 주인공 없음
-- 나레이션/리액션/질문/감상 장면 = 주인공 등장
-- 주인공 복장은 상황에 맞게 (한 편 안 복장 변경 최대 1번)
-- 한글 간판 자연스럽게 배치
-- 유흥업소 여성은 실루엣 처리
+- 장면 수와 대사 문장 수 1대1 매칭
+- 모든 프롬프트 앞에 SD 2D anime style, 붙임
+- 주인공 등장 장면 뒤에 main character exactly matching the uploaded reference image, same face, same hairstyle, same features, consistent character design, 9:16 vertical aspect ratio
+- 주인공 미등장 장면 뒤에 9:16 vertical aspect ratio
 
-상단제목 규칙:
-- 한 줄당 최대 15자 이내, 두 줄 구성
-- 첫째 줄은 궁금증 유발 또는 충격적 사실
-- 둘째 줄은 핵심 키워드 또는 반전 포인트
-- 숫자는 아라비아 숫자
+상단제목: 한 줄당 15자 이내 두 줄 구성
 
-반드시 아래 형식으로만 출력해. 다른 말 일절 붙이지 마.
+반드시 정확히 아래 형식으로만 출력해. 다른 말 절대 붙이지 마.
 
 =001=
 제목: (50자 이내)
 상단제목첫째줄: (15자 이내)
 상단제목둘째줄: (15자 이내)
-설명글: (약 200자. 해시태그 3~5개 포함)
-태그: (쉼표 구분 15~20개)
-순수대본: (문장만 마침표로 나열. 번호 없이.)
+설명글: (약 200자 해시태그 3개에서 5개 포함)
+태그: (쉼표 구분 15개에서 20개)
+순수대본: (문장만 마침표로 나열)
 =장면001=
 대사: (첫번째 문장)
 프롬프트: SD 2D anime style, (영어 장면묘사), (접미어)
@@ -370,10 +447,10 @@ with tab3:
 (대사 문장 수만큼 반복)
 
 =002=
-(위와 동일 형식)
+(동일 형식)
 
 =003=
-(위와 동일 형식)"""
+(동일 형식)"""
 
                 try:
                     raw = api.generate(prompt)
@@ -382,7 +459,6 @@ with tab3:
                     # 파싱
                     episodes = []
                     ep_blocks = re.split(r'=00(\d)=', raw)
-                    # ep_blocks: ['', '1', '내용1', '2', '내용2', '3', '내용3']
 
                     i = 1
                     while i < len(ep_blocks) - 1:
@@ -390,29 +466,23 @@ with tab3:
                         ep_content = ep_blocks[i + 1].strip()
                         ep = {"num": ep_num, "raw": ep_content}
 
-                        # 제목
                         m = re.search(r'제목:\s*(.+)', ep_content)
                         ep["title"] = m.group(1).strip() if m else f"쇼츠 {ep_num}편"
 
-                        # 상단제목
                         m1 = re.search(r'상단제목첫째줄:\s*(.+)', ep_content)
                         m2 = re.search(r'상단제목둘째줄:\s*(.+)', ep_content)
                         ep["top_line1"] = m1.group(1).strip() if m1 else ""
                         ep["top_line2"] = m2.group(1).strip() if m2 else ""
 
-                        # 설명글
-                        m = re.search(r'설명글:\s*(.+?)(?=\n태그:|\n=장면)', ep_content, re.DOTALL)
+                        m = re.search(r'설명글:\s*(.+?)(?=\n태그:|\n=장면|\nTag)', ep_content, re.DOTALL)
                         ep["description"] = m.group(1).strip() if m else ""
 
-                        # 태그
                         m = re.search(r'태그:\s*(.+)', ep_content)
                         ep["tags"] = m.group(1).strip() if m else ""
 
-                        # 순수대본
                         m = re.search(r'순수대본:\s*(.+?)(?=\n=장면)', ep_content, re.DOTALL)
                         ep["script"] = m.group(1).strip() if m else ""
 
-                        # 장면들
                         scenes = []
                         scene_blocks = re.findall(
                             r'=장면\d+=\s*대사:\s*(.+?)\s*프롬프트:\s*(.+?)(?=\n=장면|\n=00|$)',
@@ -441,38 +511,39 @@ with tab3:
         for ep in st.session_state.shorts_data:
             st.divider()
             with st.container(border=True):
-                # 제목 + 상단제목
-                title_col, tag_col = st.columns([3, 2])
+                # ── 제목 영역 ──
+                title_col, top_col = st.columns([3, 2])
                 with title_col:
                     st.subheader(f"편 {ep['num']}. {ep['title']}")
+                with top_col:
                     if ep.get("top_line1") or ep.get("top_line2"):
-                        st.caption(f"상단: {ep.get('top_line1', '')} / {ep.get('top_line2', '')}")
-                with tag_col:
-                    if ep.get("tags"):
-                        st.text_area("태그", value=ep["tags"], height=80,
-                                     key=f"tags_ep{ep['num']}", disabled=True)
+                        st.markdown(f"**상단제목**")
+                        st.write(f"{ep.get('top_line1', '')}")
+                        st.write(f"{ep.get('top_line2', '')}")
 
-                # 설명글
+                # ── 태그 영역 (제목 옆) ──
+                if ep.get("tags"):
+                    with st.container(border=True):
+                        st.markdown("**태그**")
+                        st.write(ep["tags"])
+
+                # ── 설명글 영역 ──
                 if ep.get("description"):
                     with st.container(border=True):
                         st.markdown("**설명글**")
                         st.write(ep["description"])
 
-                # 태그 (설명 아래 다시 한번 보기 좋게)
-                if ep.get("tags"):
-                    tags_list = [t.strip() for t in ep["tags"].split(",")]
-                    tag_html = " ".join([f"`{t}`" for t in tags_list[:10]])
-                    st.caption(f"주요 태그: {tag_html}")
-
-                # 대본
+                # ── 대본 영역 ──
                 with st.container(border=True):
                     st.markdown("**대본 (40초 이내)**")
-                    st.write(ep.get("script", "(대본 없음)"))
-                    if ep.get("script"):
-                        char_count = len(ep["script"])
-                        st.caption(f"글자 수: {char_count}자 | 예상: 약 {max(1, char_count // 250 * 10)}초")
+                    script_text = ep.get("script", "(대본 없음)")
+                    st.write(script_text)
+                    if script_text and script_text != "(대본 없음)":
+                        char_count = len(script_text)
+                        est_sec = min(40, max(10, char_count // 7))
+                        st.caption(f"글자 수: {char_count}자 | 예상: 약 {est_sec}초")
 
-                # 장면 프롬프트 (접이식)
+                # ── 장면 프롬프트 (접이식) ──
                 if ep.get("scenes"):
                     with st.expander(f"장면 프롬프트 ({len(ep['scenes'])}개)"):
                         for j, scene in enumerate(ep["scenes"]):
@@ -480,7 +551,6 @@ with tab3:
                             st.write(f"대사: {scene['dialogue']}")
                             st.code(scene["prompt"], language="text")
 
-        # 전체 다운로드
         st.divider()
         st.download_button(
             "쇼츠 3편 전체 다운로드 (TXT)",
@@ -496,7 +566,7 @@ with tab3:
 with tab4:
     st.header("이미지 생성")
 
-    img_tab_long, img_tab_shorts = st.tabs(["롱폼 이미지", "쇼츠 이미지"])
+    img_tab_long, img_tab_shorts = st.tabs(["롱폼 이미지 (16:9)", "쇼츠 이미지 (9:16)"])
 
     # ── 롱폼 이미지 ──
     with img_tab_long:
@@ -504,14 +574,12 @@ with tab4:
 
         if st.session_state.longform_metadata and st.session_state.longform_metadata.get("body"):
             body = st.session_state.longform_metadata["body"]
-            # 문단 단위로 장면 분리
             paragraphs = [p.strip() for p in body.split("\n\n") if p.strip()]
             if not paragraphs:
                 paragraphs = [p.strip() for p in body.split("\n") if p.strip()]
 
             st.info(f"총 {len(paragraphs)}개 문단 감지됨")
 
-            # 프롬프트 생성
             if st.button("롱폼 이미지 프롬프트 생성", key="gen_long_prompts"):
                 with st.spinner("프롬프트 생성 중..."):
                     prompt_req = f"""아래 대본의 각 문단에 대해 이미지 프롬프트를 생성해줘.
@@ -519,11 +587,11 @@ with tab4:
 규칙:
 - 모든 프롬프트는 SD 2D anime style, 로 시작
 - 16:9 가로 비율
-- 주인공 등장 장면은 맨 뒤에 main character exactly matching the uploaded reference image, same face, same hairstyle, same features, consistent character design, 16:9 horizontal aspect ratio
-- 주인공 미등장 장면은 맨 뒤에 16:9 horizontal aspect ratio
+- 주인공 등장 장면은 뒤에 main character exactly matching the uploaded reference image, same face, same hairstyle, same features, consistent character design, 16:9 horizontal aspect ratio
+- 주인공 미등장 장면은 뒤에 16:9 horizontal aspect ratio
 - 한글 간판 자연스럽게 배치
 
-형식 (문단 수만큼 반복):
+형식:
 [장면1]
 내용요약: (한글 한줄)
 프롬프트: SD 2D anime style, (영어 장면묘사), (접미어)
@@ -538,12 +606,10 @@ with tab4:
                     except Exception as e:
                         st.error(f"프롬프트 생성 실패: {e}")
 
-            # 프롬프트 결과 표시
             if st.session_state.get("longform_prompts_raw"):
                 st.text_area("생성된 프롬프트", value=st.session_state["longform_prompts_raw"],
                              height=400, key="long_prompts_display")
 
-                # 개별 프롬프트 파싱 및 이미지 생성
                 prompts = re.findall(r'프롬프트:\s*(SD 2D anime style,.+?)(?=\n\[장면|\n$|$)',
                                      st.session_state["longform_prompts_raw"], re.DOTALL)
                 if prompts:
@@ -562,7 +628,6 @@ with tab4:
                             progress.progress((idx + 1) / len(prompts))
                         st.session_state.generated_images_longform = generated
 
-            # 생성된 이미지 표시
             if st.session_state.generated_images_longform:
                 st.subheader("생성된 롱폼 이미지")
                 cols = st.columns(3)
@@ -576,7 +641,7 @@ with tab4:
                         with st.expander("프롬프트"):
                             st.code(img["prompt"], language="text")
         else:
-            st.warning("먼저 탭2에서 롱폼 대본을 생성하세요.")
+            st.warning("먼저 [롱폼 대본] 탭에서 대본을 생성하세요.")
 
     # ── 쇼츠 이미지 ──
     with img_tab_shorts:
@@ -588,12 +653,10 @@ with tab4:
                     st.markdown(f"**편 {ep['num']}. {ep['title']}**")
 
                     if ep.get("scenes"):
-                        # 프롬프트 목록 표시
                         for j, scene in enumerate(ep["scenes"]):
                             st.caption(f"장면{j+1}: {scene['dialogue'][:30]}...")
                             st.code(scene["prompt"], language="text")
 
-                        # 편별 이미지 생성
                         if st.button(f"편 {ep['num']} 이미지 생성", key=f"gen_shorts_img_{ep['num']}"):
                             progress = st.progress(0)
                             ep_images = []
@@ -605,12 +668,8 @@ with tab4:
                                     ep_images.append({"url": None, "scene": j + 1, "error": str(e),
                                                       "dialogue": scene["dialogue"]})
                                 progress.progress((j + 1) / len(ep["scenes"]))
+                            st.session_state[f"shorts_images_ep{ep['num']}"] = ep_images
 
-                            # 저장
-                            key = f"shorts_images_ep{ep['num']}"
-                            st.session_state[key] = ep_images
-
-                        # 생성된 이미지 표시
                         key = f"shorts_images_ep{ep['num']}"
                         if st.session_state.get(key):
                             cols = st.columns(4)
@@ -624,7 +683,6 @@ with tab4:
                     else:
                         st.info("장면 프롬프트가 없습니다")
 
-            # 전체 쇼츠 이미지 일괄 생성
             st.divider()
             if st.button("쇼츠 3편 전체 이미지 일괄 생성", type="primary", key="gen_all_shorts_imgs"):
                 for ep in st.session_state.shorts_data:
@@ -645,7 +703,7 @@ with tab4:
                 st.success("전체 쇼츠 이미지 생성 완료")
                 st.rerun()
         else:
-            st.warning("먼저 탭3에서 쇼츠 대본을 생성하세요.")
+            st.warning("먼저 [쇼츠 대본] 탭에서 대본을 생성하세요.")
 
 
 # ════════════════════════════════════════════
@@ -682,9 +740,8 @@ with tab6:
     tts_source = st.radio("음성 합성 대상", ["롱폼 대본", "쇼츠 대본"], key="tts_source")
 
     if tts_source == "롱폼 대본":
-        text = st.session_state.longform_metadata.get("body", "")
+        text = st.session_state.longform_metadata.get("body", "") if st.session_state.longform_metadata else ""
     else:
-        # 쇼츠 전체 대본 합치기
         parts = []
         for ep in st.session_state.shorts_data:
             if ep.get("script"):
@@ -703,8 +760,12 @@ with tab6:
                     if isinstance(result, tuple):
                         if len(result) == 3:
                             audio, timestamps, error = result
-                        else:
+                        elif len(result) == 2:
                             audio, timestamps = result
+                            error = None
+                        else:
+                            audio = result[0] if result else None
+                            timestamps = None
                             error = None
                     else:
                         audio = result
@@ -759,14 +820,14 @@ with tab8:
     st.info("Streamlit Cloud에서는 FFmpeg를 직접 실행할 수 없습니다. 아래에서 상태를 확인하고 로컬에서 합성하세요.")
 
     st.subheader("현재 상태")
-    status_items = {
+    checks = {
         "선택된 주제": st.session_state.selected_topic or "없음",
         "롱폼 대본": "생성됨" if st.session_state.longform_metadata else "없음",
         "쇼츠 대본": f"{len(st.session_state.shorts_data)}편" if st.session_state.shorts_data else "없음",
         "롱폼 이미지": f"{len(st.session_state.generated_images_longform)}장" if st.session_state.generated_images_longform else "없음",
         "레퍼런스 이미지": "업로드됨" if st.session_state.reference_image else "없음",
     }
-    for k, v in status_items.items():
+    for k, v in checks.items():
         if v == "없음":
             st.warning(f"{k}: {v}")
         else:

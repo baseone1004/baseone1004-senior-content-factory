@@ -75,6 +75,12 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
+# ─── 주제 동기화 함수 ───
+def sync_topic_to_widget(widget_key):
+    if st.session_state.selected_topic:
+        if widget_key not in st.session_state or not st.session_state[widget_key]:
+            st.session_state[widget_key] = st.session_state.selected_topic
+
 # ─── 사이드바 ───
 with st.sidebar:
     st.title("🎬 시니어 콘텐츠 팩토리")
@@ -107,9 +113,14 @@ with st.sidebar:
 
     st.markdown("---")
     if st.button("🔄 전체 초기화"):
-        for k, v in DEFAULT_KEYS.items():
-            st.session_state[k] = v
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
         st.rerun()
+
+    # 현재 선택된 주제 항상 표시
+    if st.session_state.selected_topic:
+        st.markdown("---")
+        st.success(f"🎯 선택된 주제:\n{st.session_state.selected_topic}")
 
 # ─── 탭 구성 ───
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
@@ -247,7 +258,6 @@ with tab1:
         if current and current.get("title"):
             topics.append(current)
 
-        # 파싱된 주제 목록 저장
         st.session_state["parsed_topics"] = topics
 
         if not topics:
@@ -278,42 +288,41 @@ with tab1:
 
             if st.button(f"✅ 선택 → {t.get('title','')[:30]}", key=f"pick_{i}"):
                 st.session_state.selected_topic = t.get("title", "")
+                # 다른 탭 위젯 키도 강제 동기화
+                st.session_state["longform_topic"] = t.get("title", "")
+                st.session_state["shorts_topic"] = t.get("title", "")
                 st.rerun()
 
-        # 선택된 주제 표시
         if st.session_state.selected_topic:
             st.success(f"🎯 현재 선택된 주제: {st.session_state.selected_topic}")
 
     st.markdown("---")
 
-    # 직접 입력
     st.subheader("✏️ 직접 주제 입력")
     manual_topic = st.text_input("주제를 직접 입력하세요", value="", placeholder="예: 2026년 부동산 전망")
     if st.button("이 주제로 진행 →"):
         if manual_topic:
             st.session_state.selected_topic = manual_topic
+            st.session_state["longform_topic"] = manual_topic
+            st.session_state["shorts_topic"] = manual_topic
             st.rerun()
         else:
             st.warning("주제를 입력하세요.")
 
-    # 현재 선택 상태 항상 표시
     if st.session_state.selected_topic:
         st.markdown("---")
         st.markdown(f"### 🎯 현재 선택된 주제: {st.session_state.selected_topic}")
         st.info("이제 '2.롱폼대본' 또는 '3.쇼츠대본' 탭으로 이동하세요. 주제가 자동 입력됩니다.")
 
 
-
-
-
-
-
-
 # === 탭2: 롱폼 대본 ===
 with tab2:
     st.header("📝 롱폼 대본 생성 (약 30분 분량)")
 
-    topic = st.text_input("영상 주제", value=st.session_state.selected_topic, key="longform_topic")
+    # 주제 자동 동기화
+    sync_topic_to_widget("longform_topic")
+
+    topic = st.text_input("영상 주제", key="longform_topic")
     target_minutes = st.slider("목표 분량 (분)", min_value=10, max_value=45, value=30)
     target_chars = target_minutes * 350
 
@@ -438,13 +447,16 @@ with tab2:
         st.download_button("💾 전체 저장", full_text, file_name="longform_full.txt", key="dl_full")
 
 
-# === 탭3: 쇼츠 대본 ===
+# === 탭3: 쇼츠 대본 (3편 세트) ===
 with tab3:
-    st.header("🎬 유튜브 쇼츠 10편 세트 생성")
+    st.header("🎬 유튜브 쇼츠 3편 세트 생성")
 
-    shorts_topic = st.text_input("쇼츠 대주제", value=st.session_state.selected_topic, key="shorts_topic")
+    # 주제 자동 동기화
+    sync_topic_to_widget("shorts_topic")
 
-    if st.button("⚡ 쇼츠 10편 세트 생성", use_container_width=True):
+    shorts_topic = st.text_input("쇼츠 대주제", key="shorts_topic")
+
+    if st.button("⚡ 쇼츠 3편 세트 생성", use_container_width=True):
         if not shorts_topic:
             st.warning("대주제를 입력하세요.")
         else:
@@ -461,8 +473,8 @@ with tab3:
             shorts_prompt = (
                 "너는 유튜브 쇼츠 백만 조회수 전문 대본 작가이자 이미지 프롬프트 전문가야.\n\n"
                 + "대주제: " + shorts_topic + "\n\n"
-                + "이 대주제에서 파생되는 연관성 높고 중복 없는 쇼츠 10편을 세트로 기획해.\n\n"
-                + "10개 소주제 도출 관점 (최소 각 1개씩, 나머지 2개는 가장 흥미로운 관점에서 추가):\n"
+                + "이 대주제에서 파생되는 연관성 높고 중복 없는 쇼츠 3편을 세트로 기획해.\n\n"
+                + "3개 소주제 도출 관점 (아래 8가지 중 가장 흥미로운 3가지를 골라서):\n"
                 + "1.몰락원인분석 2.전성기실태 3.내부폭로 4.비교분석 "
                 + "5.수익구조 6.피해자시점 7.현재상황 8.미래전망\n\n"
                 + "대본 규칙:\n"
@@ -501,21 +513,27 @@ with tab3:
                 + "[편2 시작]\n"
                 + "(동일 형식)\n"
                 + "[편2 끝]\n\n"
-                + "(편3~편10까지 동일)\n\n"
-                + "반드시 10편 전부 빠짐없이 완성해라."
+                + "[편3 시작]\n"
+                + "(동일 형식)\n"
+                + "[편3 끝]\n\n"
+                + "반드시 3편 전부 빠짐없이 완성해라."
             )
 
-            with st.spinner("쇼츠 10편 세트 생성 중... (시간이 걸립니다)"):
+            with st.spinner("쇼츠 3편 세트 생성 중... (시간이 걸립니다)"):
                 result, err = st.session_state.api.generate_long(shorts_prompt)
 
             if err:
                 st.error(f"생성 실패: {err}")
             elif result:
                 st.session_state.shorts_raw = result
-                st.success("쇼츠 10편 세트 생성 완료!")
+                st.success("쇼츠 3편 세트 생성 완료!")
 
     if st.session_state.shorts_raw:
         raw = st.session_state.shorts_raw
+
+        # 디버그
+        with st.expander("🔍 AI 응답 원문 보기 (디버그용)", expanded=False):
+            st.text_area("쇼츠 원문", raw, height=300)
 
         episodes = []
         pattern = re.compile(r"\[편(\d+)\s*시작\](.*?)\[편\1\s*끝\]", re.DOTALL)
@@ -560,6 +578,8 @@ with tab3:
                          "top1": "", "top2": "", "desc": "", "tags": ""}]
 
         st.session_state.shorts_scripts = episodes
+
+        st.info(f"총 {len(episodes)}편 파싱 완료")
 
         for ep in episodes:
             with st.expander(f"📹 편 {ep['num']}: {ep.get('title', '')}", expanded=False):
@@ -713,7 +733,6 @@ with tab5:
 with tab6:
     st.header("🔊 음성 합성 (Inworld TTS)")
 
-    # 음성 목록 가져오기
     voice_options = ["Sarah", "James", "Emily", "Michael"]
     try:
         voices, v_err = st.session_state.api.inworld.list_voices()

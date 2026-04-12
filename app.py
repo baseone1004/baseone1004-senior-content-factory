@@ -252,7 +252,7 @@ with tab2:
         st.info(f"주제: {st.session_state.selected_topic}")
 
         if st.session_state.longform_script is None:
-            if st.button("롱폼 대본 생성 시작", type="primary", use_container_width=True):
+            if st.button("롱폼 대본 생성 시작 (약 30분 분량)", type="primary", use_container_width=True):
                 with st.spinner("네이버 뉴스로 추가 자료 수집 중..."):
                     extra_news, _ = st.session_state.api.naver.search(
                         st.session_state.selected_topic, display=10, sort="date"
@@ -263,7 +263,7 @@ with tab2:
                             f"- {n['title']}: {n['description']}" for n in extra_news[:10]
                         ])
 
-                with st.spinner("스카이워크로 대본 생성 중... (약 2-5분)"):
+                with st.spinner("스카이워크로 삼십 분 분량 대본 생성 중... (약 5-10분 소요)"):
                     prompt = f"""당신은 대한민국 최고의 유튜브 전문 작가이자 경제 사회 분석가입니다.
 시청자의 클릭을 유발하는 강렬한 후킹과 끝까지 보게 만드는 시네마틱 스토리텔링을 구사하여 백만 조회수를 보장하는 대본을 작성합니다.
 
@@ -272,73 +272,167 @@ with tab2:
 참고 뉴스 자료:
 {news_context}
 
-출력 형식 (반드시 준수):
-인사말이나 알겠습니다 같은 부연 설명 없이 아래 구분자를 사용하여 섹션을 완벽히 분리하여 출력하십시오.
+출력 형식 (반드시 준수. 인사말이나 알겠습니다 같은 부연 설명 없이 바로 시작):
 
-제목: (오십 자 이내. 숫자는 아라비아 숫자 사용)
+=제목=
+(오십 자 이내. 숫자는 아라비아 숫자 사용. 시청자가 클릭하지 않을 수 없는 강렬한 후킹 제목)
 
-설명글: (약 이백 자)
+=태그=
+(해시태그 다섯 개. 예: #부동산폭락 #경제위기 #투자주의 #사회이슈 #긴급분석)
 
-태그: (해시태그 다섯 개)
+=설명=
+(약 삼백 자 분량의 영상 설명글. 아래 두 문구를 설명글 맨 끝에 반드시 포함할 것:
+본 영상은 일반적인 정보 전달 및 개인적인 의견이며 투자 권유가 아닙니다.
+이 영상은 AI로 제작된 영상입니다.)
 
-(여기서부터 대본 본문. 대본이라는 단어 없이 바로 시작)
+=설명태그=
+(해시태그 열다섯 개에서 이십 개. 쉼표로 구분. 예: #경제, #부동산, #투자, #사회이슈)
 
-대본 규칙:
-분량은 만 자 이상. 문장 수는 백 문장 이내.
-시네마틱 오프닝으로 시작. 날짜나 정의로 시작하지 마십시오.
-현장의 시각적 청각적 묘사로 영화처럼 시작하십시오.
-구어체 사용. 시청자와 마주 앉아 이야기하듯 합니다체 사용.
-논리 구조: 현상의 실태 → 심층 원인 분석 → 피해자 또는 현장의 목소리 → 사회적 역사적 비교 분석 → 시청자에게 던지는 묵직한 메시지.
-모든 영어와 외래어는 한글 순화어로 교체.
+=대본=
+(여기서부터 대본 본문 시작. 대본이라는 단어 없이 바로 시작)
+
+대본 규칙 (절대 엄수):
+분량: 반드시 만오천 자 이상. 삼십 분 분량의 초고밀도 대본.
+단순 반복이 아닌 지루하지 않고 계속 시청해야 할 흥미 있는 대본으로 만오천 자 이상을 유지하십시오.
+현장의 공기와 사람들의 표정과 냄새와 시대적 배경과 통계 데이터의 이면을 소설처럼 상세히 묘사하여 분량을 확보하십시오.
+문장 수는 백 문장 이내로 하되 각 문장을 길고 풍부하게 작성하십시오.
+
+시네마틱 오프닝: 날짜나 정의로 시작하지 마십시오. 현장의 시각적 청각적 묘사로 영화처럼 시작하십시오.
+구어체 사용: 시청자와 마주 앉아 이야기하듯 합니다체와 일까요체를 섞어 사용하십시오.
+
+논리 구조:
+현상의 실태를 데이터와 현장 묘사로 시작하십시오.
+심층 원인을 비유를 활용하여 분석하십시오.
+피해자 또는 현장의 목소리를 구체적으로 묘사하십시오.
+사회적 역사적 비교 분석을 통해 깊이를 더하십시오.
+시청자에게 던지는 묵직한 메시지로 마무리하십시오.
+
+TTS 최적화 규칙:
+모든 영어와 외래어는 한글 순화어로 교체. 예: 리스크는 위험. 데이터는 정보. 아파트는 공동주택.
 모든 숫자는 읽기 방식 그대로 한글로 표기. 연도는 천구백구십구년 이천이십육년 형식.
 특수기호 전면 제거. 마침표만 사용.
 줄글 형태 유지. 번호 매기기 금지. 소제목 금지.
-문장이 완전히 끝날 때만 마침표 사용. 마침표 반복 금지."""
+문장이 완전히 끝날 때만 마침표 사용. 마침표 반복 금지.
+
+절대 분량을 줄이지 마십시오. 만오천 자 미만이면 재작성하십시오."""
 
                     result, error = st.session_state.api.generate_long(prompt)
                     if error:
                         st.error(f"대본 생성 실패: {error}")
                     elif result:
                         st.session_state.longform_script = result
-                        lines = result.strip().split("\n")
-                        meta = {"title": "", "desc": "", "tags": ""}
-                        for line in lines:
+                        meta = {"title": "", "tags": "", "desc": "", "desc_tags": "", "script": ""}
+                        current_section = None
+                        script_lines = []
+
+                        for line in result.strip().split("\n"):
                             stripped = line.strip()
-                            if stripped.startswith("제목:"):
-                                meta["title"] = stripped.replace("제목:", "").strip()
-                            elif stripped.startswith("설명글:"):
-                                meta["desc"] = stripped.replace("설명글:", "").strip()
-                            elif stripped.startswith("태그:"):
-                                meta["tags"] = stripped.replace("태그:", "").strip()
+                            if stripped == "=제목=":
+                                current_section = "title"
+                                continue
+                            elif stripped == "=태그=":
+                                current_section = "tags"
+                                continue
+                            elif stripped == "=설명=":
+                                current_section = "desc"
+                                continue
+                            elif stripped == "=설명태그=":
+                                current_section = "desc_tags"
+                                continue
+                            elif stripped == "=대본=":
+                                current_section = "script"
+                                continue
+
+                            if current_section == "title" and stripped:
+                                meta["title"] = stripped
+                            elif current_section == "tags" and stripped:
+                                meta["tags"] = stripped
+                            elif current_section == "desc" and stripped:
+                                if meta["desc"]:
+                                    meta["desc"] += "\n" + stripped
+                                else:
+                                    meta["desc"] = stripped
+                            elif current_section == "desc_tags" and stripped:
+                                meta["desc_tags"] = stripped
+                            elif current_section == "script" and stripped:
+                                script_lines.append(stripped)
+
+                        meta["script"] = "\n".join(script_lines)
+
+                        if not meta["title"]:
+                            lines = result.strip().split("\n")
+                            for line in lines:
+                                stripped = line.strip()
+                                if stripped.startswith("제목:"):
+                                    meta["title"] = stripped.replace("제목:", "").strip()
+                                elif stripped.startswith("설명글:") or stripped.startswith("설명:"):
+                                    meta["desc"] = stripped.split(":", 1)[1].strip()
+                                elif stripped.startswith("태그:"):
+                                    if not meta["tags"]:
+                                        meta["tags"] = stripped.replace("태그:", "").strip()
+
+                        if not meta["script"]:
+                            meta["script"] = result
+
+                        disclaimer1 = "본 영상은 일반적인 정보 전달 및 개인적인 의견이며 투자 권유가 아닙니다."
+                        disclaimer2 = "이 영상은 AI로 제작된 영상입니다."
+                        if meta["desc"] and disclaimer1 not in meta["desc"]:
+                            meta["desc"] += f"\n\n{disclaimer1}\n{disclaimer2}"
+
                         st.session_state.longform_meta = meta
                         st.rerun()
         else:
             meta = st.session_state.longform_meta or {}
-            if meta.get("title"):
-                st.markdown(f"**제목:** {meta['title']}")
-            if meta.get("desc"):
-                st.markdown(f"**설명글:** {meta['desc']}")
-            if meta.get("tags"):
-                st.markdown(f"**태그:** {meta['tags']}")
-            st.text_area("대본 전문", st.session_state.longform_script, height=500)
-            st.download_button(
-                "대본 다운로드",
-                st.session_state.longform_script,
-                file_name="longform_script.txt"
-            )
+            script_text = meta.get("script", st.session_state.longform_script or "")
+            char_count = len(script_text)
+            sentence_count = len([s for s in re.split(r'[.?!]', script_text) if s.strip()])
+            approx_minutes = max(1, char_count // 500)
+
+            st.markdown(f"**대본 정보:** 약 {char_count:,}자 | 약 {sentence_count}문장 | 약 {approx_minutes}분 분량")
+            st.markdown("---")
+
+            st.markdown("#### 제목")
+            title_text = meta.get("title", "")
+            st.code(title_text, language=None)
+            st.markdown("---")
+
+            st.markdown("#### 태그")
+            tags_text = meta.get("tags", "")
+            st.code(tags_text, language=None)
+            st.markdown("---")
+
+            st.markdown("#### 설명")
+            desc_text = meta.get("desc", "")
+            st.text_area("설명글", desc_text, height=200, key="desc_area")
+            st.markdown("---")
+
+            st.markdown("#### 설명 태그")
+            desc_tags_text = meta.get("desc_tags", "")
+            st.code(desc_tags_text, language=None)
+            st.markdown("---")
+
+            st.markdown("#### 대본")
+            st.text_area("대본 전문", script_text, height=500, key="script_area")
 
             st.markdown("---")
-            st.markdown("**대본 문장 분리**")
-            if st.button("문장 분리 실행"):
-                raw = st.session_state.longform_script
-                lines = raw.strip().split("\n")
+            col_dl1, col_dl2, col_dl3 = st.columns(3)
+            with col_dl1:
+                full_export = f"""=제목=\n{title_text}\n\n=태그=\n{tags_text}\n\n=설명=\n{desc_text}\n\n=설명태그=\n{desc_tags_text}\n\n=대본=\n{script_text}"""
+                st.download_button("전체 다운로드", full_export, file_name="longform_full.txt", use_container_width=True)
+            with col_dl2:
+                st.download_button("대본만 다운로드", script_text, file_name="longform_script.txt", use_container_width=True)
+            with col_dl3:
+                desc_export = f"{desc_text}\n\n{desc_tags_text}"
+                st.download_button("설명+태그 다운로드", desc_export, file_name="description.txt", use_container_width=True)
+
+            st.markdown("---")
+            st.markdown("#### 대본 문장 분리")
+            if st.button("문장 분리 실행", key="split_btn"):
+                raw = script_text
                 script_lines = []
-                skip_prefixes = ["제목:", "설명글:", "태그:"]
-                for line in lines:
+                for line in raw.strip().split("\n"):
                     stripped = line.strip()
                     if not stripped:
-                        continue
-                    if any(stripped.startswith(p) for p in skip_prefixes):
                         continue
                     sentences = re.split(r'(?<=[.?!])\s*', stripped)
                     for s in sentences:
@@ -349,32 +443,14 @@ with tab2:
                 st.success(f"총 {len(st.session_state.scenes)}개 문장 분리 완료")
 
             if st.session_state.scenes:
-                st.markdown(f"분리된 문장: {len(st.session_state.scenes)}개")
+                st.markdown(f"분리된 문장: **{len(st.session_state.scenes)}개**")
                 for i, s in enumerate(st.session_state.scenes[:10]):
-                    st.caption(f"{i+1}. {s[:80]}...")
+                    st.caption(f"{i+1}. {s[:100]}...")
                 if len(st.session_state.scenes) > 10:
                     st.caption(f"... 외 {len(st.session_state.scenes)-10}개")
     else:
         st.warning("탭1에서 먼저 주제를 선택하세요.")
 
-# === 탭3: 쇼츠 대본 ===
-with tab3:
-    st.markdown("### 쇼츠 대본 생성 (롱폼에서 3편 추출)")
-    if st.session_state.longform_script:
-        if st.session_state.shorts_scripts is None:
-            if st.button("쇼츠 3편 생성", type="primary", use_container_width=True):
-                with st.spinner("쇼츠 대본 생성 중..."):
-                    summary = st.session_state.longform_script[:3000]
-                    meta = st.session_state.longform_meta or {}
-                    title = meta.get("title", st.session_state.selected_topic or "")
-
-                    prompt = f"""당신은 유튜브 쇼츠 백만 조회수 전문 대본 작가입니다.
-
-아래 롱폼 대본에서 가장 흥미로운 부분을 골라 쇼츠 세 편의 대본을 작성하십시오.
-
-롱폼 제목: {title}
-롱폼 대본 요약:
-{summary}
 
 각 쇼츠 편 출력 형식:
 

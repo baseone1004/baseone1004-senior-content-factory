@@ -861,9 +861,20 @@ with tab4:
             st.info("먼저 쇼츠 대본을 생성하세요.")
 
 
-# ═══ 탭5: 영상 변환 (Kie AI) ═══
+# ═══ 탭5: 영상 변환 (Kie AI + 자동 효과) ═══
 with tab5:
-    st.header("영상 변환 (Kie AI)")
+    st.header("영상 변환")
+
+    AUTO_EFFECTS_CYCLE = [
+        "줌인 (느린)", "줌아웃 (느린)", "좌→우 패닝", "우→좌 패닝",
+        "상→하 패닝", "하→상 패닝", "켄번스 좌상→우하", "켄번스 우상→좌하",
+        "켄번스 중앙→좌", "켄번스 중앙→우", "줌인 (빠른)", "줌아웃 (빠른)",
+        "흔들림 (약한)", "펄스 줌",
+    ]
+
+    def get_auto_effect(idx):
+        return AUTO_EFFECTS_CYCLE[idx % len(AUTO_EFFECTS_CYCLE)]
+
     vid_tab_l, vid_tab_s = st.tabs(["롱폼 영상", "쇼츠 영상"])
 
     with vid_tab_l:
@@ -872,48 +883,66 @@ with tab5:
             images_with_url = [img for img in st.session_state.generated_images_longform if img.get("url")]
             st.info(f"생성된 이미지: {len(images_with_url)}개")
 
-            # 효과 선택
-            st.markdown("**카메라 효과 선택**")
-            bulk_effect = st.selectbox("일괄 적용", list(CAMERA_EFFECTS.keys()), key="lf_bulk_effect")
-            if st.button("전체 일괄 적용", key="lf_apply_bulk"):
+            st.markdown("**일괄 효과 설정**")
+            bc1, bc2 = st.columns([3, 1])
+            with bc1:
+                bulk_effect = st.selectbox("일괄 적용할 효과", list(CAMERA_EFFECTS.keys()), key="lf_bulk_effect")
+            with bc2:
+                if st.button("전체 일괄 적용", key="lf_apply_bulk", use_container_width=True):
+                    for i in range(len(images_with_url)):
+                        st.session_state.video_effects_longform[f"lf_{i}"] = bulk_effect
+                    st.rerun()
+
+            if st.button("자동 효과 할당 (줌인/줌아웃 순환)", use_container_width=True):
                 for i in range(len(images_with_url)):
-                    st.session_state.video_effects_longform[f"lf_{i}"] = bulk_effect
+                    st.session_state.video_effects_longform[f"lf_{i}"] = get_auto_effect(i)
                 st.rerun()
 
+            st.divider()
+
             for i, img in enumerate(images_with_url):
+                eff_key = f"lf_{i}"
+                # 효과 미지정이면 자동 할당
+                if eff_key not in st.session_state.video_effects_longform:
+                    st.session_state.video_effects_longform[eff_key] = get_auto_effect(i)
+
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([2, 2, 1])
                     with c1:
                         if img.get("url"):
                             st.image(img["url"], width=200)
                     with c2:
-                        eff = st.selectbox("효과", list(CAMERA_EFFECTS.keys()),
-                                          index=list(CAMERA_EFFECTS.keys()).index(st.session_state.video_effects_longform.get(f"lf_{i}", "줌인 (느린)")),
-                                          key=f"lf_eff_{i}")
-                        st.session_state.video_effects_longform[f"lf_{i}"] = eff
+                        current_eff = st.session_state.video_effects_longform.get(eff_key, "줌인 (느린)")
+                        eff_list = list(CAMERA_EFFECTS.keys())
+                        eff_idx = eff_list.index(current_eff) if current_eff in eff_list else 1
+                        eff = st.selectbox("효과", eff_list, index=eff_idx, key=f"lf_eff_{i}")
+                        st.session_state.video_effects_longform[eff_key] = eff
                         st.markdown(build_effect_preview_html(eff, img.get("url"), "16:9"), unsafe_allow_html=True)
                     with c3:
-                        if st.button("변환", key=f"lf_conv_{i}"):
-                            with st.spinner("변환 중..."):
+                        # Runway 영상 변환 (클릭한 것만)
+                        if st.button("Runway 영상변환", key=f"lf_conv_{i}"):
+                            with st.spinner("Kie AI 영상 변환 중..."):
                                 try:
-                                    task_id, err = api.kie.image_to_video(img["url"], prompt=eff, duration=5)
+                                    task_id, err = api.kie.image_to_video(img["url"], prompt=f"{eff} cinematic movement", duration=5)
                                     if task_id:
-                                        st.session_state.video_results_longform[f"lf_{i}"] = {"task_id": task_id, "status": "processing"}
+                                        st.session_state.video_results_longform[eff_key] = {"task_id": task_id, "status": "processing", "type": "runway"}
                                         st.success(f"변환 시작 (태스크: {task_id[:8]}...)")
                                     else:
                                         st.error(f"실패: {err}")
                                 except Exception as e:
                                     st.error(str(e))
 
+                        st.caption(f"자동효과: {eff}")
+
                     # 상태 확인
-                    vr = st.session_state.video_results_longform.get(f"lf_{i}")
+                    vr = st.session_state.video_results_longform.get(eff_key)
                     if vr:
                         if vr.get("status") == "processing":
                             if st.button("상태 확인", key=f"lf_check_{i}"):
                                 state, url, err = api.kie.check_task(vr["task_id"])
                                 if state == "success" and url:
-                                    st.session_state.video_results_longform[f"lf_{i}"]["status"] = "done"
-                                    st.session_state.video_results_longform[f"lf_{i}"]["url"] = url
+                                    st.session_state.video_results_longform[eff_key]["status"] = "done"
+                                    st.session_state.video_results_longform[eff_key]["url"] = url
                                     st.rerun()
                                 elif state == "failed":
                                     st.error("변환 실패")
@@ -921,6 +950,7 @@ with tab5:
                                     st.info(f"진행 중... ({state})")
                         elif vr.get("url"):
                             st.video(vr["url"])
+                            st.caption("Runway 영상 생성 완료")
         else:
             st.info("먼저 이미지를 생성하세요.")
 
@@ -933,16 +963,65 @@ with tab5:
                 if not imgs_ok:
                     st.warning("이미지 없음")
                     continue
+
+                # 자동 효과 일괄 할당 버튼
+                if st.button(f"{ep_num}편 자동 효과 할당", key=f"s_auto_eff_{ep_num}"):
+                    for j in range(len(imgs_ok)):
+                        st.session_state.video_effects_shorts[f"s{ep_num}_{j}"] = get_auto_effect(j)
+                    st.rerun()
+
                 for j, img in enumerate(imgs_ok):
+                    eff_key = f"s{ep_num}_{j}"
+                    # 효과 미지정이면 자동 할당
+                    if eff_key not in st.session_state.video_effects_shorts:
+                        st.session_state.video_effects_shorts[eff_key] = get_auto_effect(j)
+
                     with st.container(border=True):
-                        c1, c2 = st.columns([2, 2])
+                        c1, c2, c3 = st.columns([2, 2, 1])
                         with c1:
-                            st.image(img["url"], width=150)
+                            st.image(img["url"], width=120)
+                            st.caption(img.get("dialogue", "")[:25])
                         with c2:
-                            eff_key = f"s{ep_num}_{j}"
-                            eff = st.selectbox("효과", list(CAMERA_EFFECTS.keys()), key=f"seff_{eff_key}")
+                            current_eff = st.session_state.video_effects_shorts.get(eff_key, "줌인 (느린)")
+                            eff_list = list(CAMERA_EFFECTS.keys())
+                            eff_idx = eff_list.index(current_eff) if current_eff in eff_list else 1
+                            eff = st.selectbox("효과", eff_list, index=eff_idx, key=f"seff_{eff_key}")
                             st.session_state.video_effects_shorts[eff_key] = eff
                             st.markdown(build_effect_preview_html(eff, img.get("url"), "9:16"), unsafe_allow_html=True)
+                        with c3:
+                            # Runway 영상 변환 (클릭한 것만)
+                            if st.button("Runway 변환", key=f"s_conv_{eff_key}"):
+                                with st.spinner("영상 변환 중..."):
+                                    try:
+                                        task_id, err = api.kie.image_to_video(img["url"], prompt=f"{eff} cinematic movement", duration=5)
+                                        if task_id:
+                                            if ep_num not in st.session_state.video_results_shorts:
+                                                st.session_state.video_results_shorts[ep_num] = {}
+                                            st.session_state.video_results_shorts[ep_num][str(j)] = {"task_id": task_id, "status": "processing", "type": "runway"}
+                                            st.success(f"변환 시작")
+                                        else:
+                                            st.error(f"실패: {err}")
+                                    except Exception as e:
+                                        st.error(str(e))
+
+                            st.caption(f"자동: {eff}")
+
+                        # 상태 확인
+                        vr = (st.session_state.video_results_shorts.get(ep_num) or {}).get(str(j))
+                        if vr:
+                            if vr.get("status") == "processing":
+                                if st.button("상태확인", key=f"s_chk_{eff_key}"):
+                                    state, url, err = api.kie.check_task(vr["task_id"])
+                                    if state == "success" and url:
+                                        st.session_state.video_results_shorts[ep_num][str(j)]["status"] = "done"
+                                        st.session_state.video_results_shorts[ep_num][str(j)]["url"] = url
+                                        st.rerun()
+                                    elif state == "failed":
+                                        st.error("변환 실패")
+                                    else:
+                                        st.info(f"진행 중... ({state})")
+                            elif vr.get("url"):
+                                st.video(vr["url"])
                 st.divider()
         else:
             st.info("먼저 쇼츠 이미지를 생성하세요.")
@@ -950,7 +1029,53 @@ with tab5:
 
 # ═══ 탭6: 음성 합성 (Inworld TTS) ═══
 with tab6:
-    st.header("음성 합성 (TTS)")
+    st.header("음성 합성 (Inworld TTS)")
+
+    # ── 공통 음성 설정 ──
+    st.markdown("---")
+    st.subheader("음성 설정")
+
+    KOREAN_VOICES = {
+        "현우 (젊은 남성)": "Hyunwoo",
+        "민지 (활발한 여성)": "Minji",
+        "서준 (성숙한 남성)": "Seojun",
+        "윤아 (차분한 여성)": "Yoona",
+    }
+
+    TTS_MODELS = {
+        "TTS 1.5 Max (고품질)": "inworld-tts-1.5-max",
+        "TTS 1.5 Mini (빠른속도)": "inworld-tts-1.5-mini",
+    }
+
+    vc1, vc2, vc3, vc4 = st.columns(4)
+    with vc1:
+        voice_display = st.selectbox("음성 선택", list(KOREAN_VOICES.keys()), index=0, key="tts_voice_select")
+        selected_voice_id = KOREAN_VOICES[voice_display]
+    with vc2:
+        model_display = st.selectbox("모델", list(TTS_MODELS.keys()), index=0, key="tts_model_select")
+        selected_model_id = TTS_MODELS[model_display]
+    with vc3:
+        speaking_rate = st.slider("말하기 속도", 0.5, 2.0, 1.0, 0.1, key="tts_speed")
+    with vc4:
+        temperature = st.slider("표현력 (온도)", 0.1, 2.0, 1.0, 0.1, key="tts_temp")
+
+    # 음성 카드 미리보기
+    voice_info = {
+        "Hyunwoo": {"name": "현우", "desc": "젊은 성인 남성 목소리", "icon": "🧑"},
+        "Minji": {"name": "민지", "desc": "활기차고 친근한 젊은 여성 목소리", "icon": "👩"},
+        "Seojun": {"name": "서준", "desc": "깊고 성숙한 남성 목소리", "icon": "👨"},
+        "Yoona": {"name": "윤아", "desc": "부드럽고 차분한 여성 목소리", "icon": "👩‍🦰"},
+    }
+    vi = voice_info.get(selected_voice_id, {})
+    st.markdown(f"""<div style="background:linear-gradient(135deg,#1a1a3e,#2a1a4e);border:1px solid #444;border-radius:12px;padding:16px;margin:10px 0;display:flex;align-items:center;gap:16px;">
+<div style="font-size:48px;">{vi.get('icon','🎙️')}</div>
+<div>
+<div style="font-size:18px;font-weight:bold;color:#e0e0e0;">{vi.get('name','')} ({selected_voice_id})</div>
+<div style="font-size:13px;color:#999;">{vi.get('desc','')}</div>
+<div style="font-size:11px;color:#666;margin-top:4px;">모델: {model_display} | 속도: {speaking_rate}x | 온도: {temperature}</div>
+</div></div>""", unsafe_allow_html=True)
+
+    st.markdown("---")
     tts_tab_l, tts_tab_s = st.tabs(["롱폼 음성", "쇼츠 음성"])
 
     with tts_tab_l:
@@ -958,20 +1083,28 @@ with tab6:
         if st.session_state.longform_metadata and st.session_state.longform_metadata.get("body"):
             body = st.session_state.longform_metadata["body"]
             st.text_area("대본 미리보기", body[:500] + "..." if len(body) > 500 else body, height=150, disabled=True)
+            st.caption(f"전체 {len(body)}자 | 2000자 제한으로 앞부분만 합성됩니다")
+
             if st.button("롱폼 음성 생성", type="primary", use_container_width=True):
-                with st.spinner("음성 생성 중..."):
+                with st.spinner(f"음성 생성 중... ({vi.get('name','')}, {model_display})"):
                     try:
-                        audio, timestamps, err = api.inworld.synthesize(body[:2000])
+                        audio, timestamps, err = api.inworld.synthesize(
+                            text=body[:2000],
+                            voice_id=selected_voice_id,
+                            model_id=selected_model_id,
+                            speaking_rate=speaking_rate,
+                            temperature=temperature,
+                        )
                         if audio:
                             st.session_state.tts_longform_audio = audio
                             ts = parse_tts_timestamps(timestamps, body)
                             st.session_state.tts_longform_timestamps = ts
                             st.session_state.tts_longform_srt = timestamps_to_srt(ts)
-                            st.success("음성 생성 완료")
+                            st.success(f"음성 생성 완료 ({vi.get('name','')})")
                         else:
                             st.error(f"TTS 실패: {err}")
                     except Exception as e:
-                        st.error(str(e))
+                        st.error(f"TTS 오류: {str(e)}")
 
             if st.session_state.tts_longform_audio:
                 st.audio(st.session_state.tts_longform_audio, format="audio/mp3")
@@ -988,32 +1121,82 @@ with tab6:
     with tts_tab_s:
         st.subheader("쇼츠 TTS")
         if st.session_state.shorts_data:
+            # 전체 일괄 생성
+            if st.button("쇼츠 전편 음성 일괄 생성", use_container_width=True):
+                progress = st.progress(0)
+                total = len(st.session_state.shorts_data)
+                for idx, ep in enumerate(st.session_state.shorts_data):
+                    ep_num = ep["num"]
+                    script = ep.get("script", "")
+                    if script and ep_num not in st.session_state.tts_shorts_audio:
+                        try:
+                            audio, timestamps, err = api.inworld.synthesize(
+                                text=script,
+                                voice_id=selected_voice_id,
+                                model_id=selected_model_id,
+                                speaking_rate=speaking_rate,
+                                temperature=temperature,
+                            )
+                            if audio:
+                                st.session_state.tts_shorts_audio[ep_num] = audio
+                                ts = parse_tts_timestamps(timestamps, script)
+                                st.session_state.tts_shorts_timestamps[ep_num] = ts
+                                st.session_state.tts_shorts_srt[ep_num] = timestamps_to_srt(ts)
+                        except Exception:
+                            pass
+                    progress.progress((idx + 1) / total)
+                    time.sleep(0.5)
+                st.rerun()
+
+            st.divider()
+
             for ep in st.session_state.shorts_data:
                 ep_num = ep["num"]
                 with st.container(border=True):
-                    st.markdown(f"**{ep_num}편: {ep['title']}**")
-                    script = ep.get("script", "")
-                    if script:
-                        st.caption(f"{len(script)}자")
-                        if st.button(f"{ep_num}편 음성 생성", key=f"tts_s_{ep_num}"):
-                            with st.spinner("생성 중..."):
-                                try:
-                                    audio, timestamps, err = api.inworld.synthesize(script)
-                                    if audio:
-                                        st.session_state.tts_shorts_audio[ep_num] = audio
-                                        ts = parse_tts_timestamps(timestamps, script)
-                                        st.session_state.tts_shorts_timestamps[ep_num] = ts
-                                        st.session_state.tts_shorts_srt[ep_num] = timestamps_to_srt(ts)
-                                        st.rerun()
-                                    else:
-                                        st.error(f"실패: {err}")
-                                except Exception as e:
-                                    st.error(str(e))
+                    ec1, ec2 = st.columns([3, 1])
+                    with ec1:
+                        st.markdown(f"**{ep_num}편: {ep['title']}**")
+                        script = ep.get("script", "")
+                        if script:
+                            st.caption(f"{len(script)}자 | 약 {len(script)//7}초")
+                    with ec2:
+                        has_audio = ep_num in st.session_state.tts_shorts_audio
+                        if has_audio:
+                            st.markdown("✅ 생성됨")
+                        else:
+                            if st.button(f"음성 생성", key=f"tts_s_{ep_num}"):
+                                with st.spinner(f"{ep_num}편 음성 생성 중... ({vi.get('name','')})"):
+                                    try:
+                                        audio, timestamps, err = api.inworld.synthesize(
+                                            text=script,
+                                            voice_id=selected_voice_id,
+                                            model_id=selected_model_id,
+                                            speaking_rate=speaking_rate,
+                                            temperature=temperature,
+                                        )
+                                        if audio:
+                                            st.session_state.tts_shorts_audio[ep_num] = audio
+                                            ts = parse_tts_timestamps(timestamps, script)
+                                            st.session_state.tts_shorts_timestamps[ep_num] = ts
+                                            st.session_state.tts_shorts_srt[ep_num] = timestamps_to_srt(ts)
+                                            st.rerun()
+                                        else:
+                                            st.error(f"실패: {err}")
+                                    except Exception as e:
+                                        st.error(str(e))
 
-                        if st.session_state.tts_shorts_audio.get(ep_num):
-                            st.audio(st.session_state.tts_shorts_audio[ep_num], format="audio/mp3")
-                            if st.session_state.tts_shorts_timestamps.get(ep_num):
-                                st.markdown(build_sync_timeline_html(st.session_state.tts_shorts_timestamps[ep_num]), unsafe_allow_html=True)
+                    if st.session_state.tts_shorts_audio.get(ep_num):
+                        st.audio(st.session_state.tts_shorts_audio[ep_num], format="audio/mp3")
+                        if st.session_state.tts_shorts_timestamps.get(ep_num):
+                            st.markdown(build_sync_timeline_html(st.session_state.tts_shorts_timestamps[ep_num]), unsafe_allow_html=True)
+                        dc1, dc2 = st.columns(2)
+                        with dc1:
+                            st.download_button(f"{ep_num}편 음성", st.session_state.tts_shorts_audio[ep_num],
+                                              f"shorts_{ep_num}_tts.mp3", key=f"dl_audio_{ep_num}")
+                        with dc2:
+                            if st.session_state.tts_shorts_srt.get(ep_num):
+                                st.download_button(f"{ep_num}편 SRT", st.session_state.tts_shorts_srt[ep_num],
+                                                  f"shorts_{ep_num}.srt", key=f"dl_srt_{ep_num}")
         else:
             st.info("먼저 쇼츠 대본을 생성하세요.")
 

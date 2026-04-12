@@ -129,7 +129,6 @@ with tab1:
 
     if st.button("🔥 떡상 주제 추천 받기", use_container_width=True):
         with st.spinner("네이버 뉴스 수집 중..."):
-            # naver_news_handler의 search 메서드 직접 사용
             news_items, err = st.session_state.api.naver.search(keyword, display=news_count)
 
         if err:
@@ -138,26 +137,36 @@ with tab1:
             st.warning("수집된 뉴스가 없습니다.")
         else:
             st.session_state.news_results = news_items
+            st.success(f"뉴스 {len(news_items)}건 수집 완료!")
+
             summary = ""
             for i, item in enumerate(news_items):
                 summary += f"{i+1}. {item['title']}\n   {item['description'][:100]}\n\n"
 
             analysis_prompt = (
                 "아래는 최신 뉴스 목록입니다.\n\n"
-                f"{summary}\n\n"
-                "이 뉴스들을 분석해서 유튜브 영상으로 만들면 조회수가 높을 주제 10개를 추천해주세요.\n"
-                "각 주제마다 아래 형식으로 작성하세요.\n\n"
-                "주제1: (제목)\n"
-                "떡상확률: (숫자)%\n"
-                "근거: (한 줄 설명)\n"
-                "출처뉴스: (참고한 뉴스 제목)\n"
-                "대체제목1: (다른 제목 후보)\n"
-                "대체제목2: (다른 제목 후보)\n"
-                "태그: (관련 태그 5개, 쉼표 구분)\n\n"
-                "주제2: ...\n"
-                "(같은 형식으로 10개)\n\n"
-                "떡상확률은 50%에서 99% 사이로 현실적으로 매겨주세요.\n"
-                "조회수 폭발 가능성이 높은 순서대로 정렬해주세요."
+                + summary + "\n\n"
+                + "이 뉴스들을 분석해서 유튜브 영상으로 만들면 조회수가 높을 주제 10개를 추천해주세요.\n"
+                + "각 주제마다 반드시 아래 형식 그대로 작성하세요. 형식을 절대 바꾸지 마세요.\n\n"
+                + "주제1: 제목을 여기에 쓰세요\n"
+                + "떡상확률: 85%\n"
+                + "근거: 한 줄 설명\n"
+                + "출처뉴스: 참고한 뉴스 제목\n"
+                + "대체제목1: 다른 제목 후보\n"
+                + "대체제목2: 다른 제목 후보\n"
+                + "태그: 태그1, 태그2, 태그3, 태그4, 태그5\n\n"
+                + "주제2: 제목을 여기에 쓰세요\n"
+                + "떡상확률: 80%\n"
+                + "근거: 한 줄 설명\n"
+                + "출처뉴스: 참고한 뉴스 제목\n"
+                + "대체제목1: 다른 제목 후보\n"
+                + "대체제목2: 다른 제목 후보\n"
+                + "태그: 태그1, 태그2, 태그3, 태그4, 태그5\n\n"
+                + "이런 식으로 주제3부터 주제10까지 총 10개를 작성하세요.\n"
+                + "떡상확률은 50에서 99 사이 숫자만 쓰세요.\n"
+                + "조회수 폭발 가능성이 높은 순서대로 정렬해주세요.\n"
+                + "마크다운 기호나 별표나 볼드 처리를 절대 사용하지 마세요.\n"
+                + "반드시 위 형식 그대로만 출력하세요."
             )
 
             with st.spinner("AI가 떡상 주제를 분석 중..."):
@@ -165,49 +174,92 @@ with tab1:
 
             if gen_err:
                 st.error(f"분석 실패: {gen_err}")
-            else:
+            elif result:
                 st.session_state.topic_analysis = result
+                st.success("AI 분석 완료!")
+            else:
+                st.warning("AI 응답이 비어있습니다.")
 
     # 결과 표시
     if st.session_state.topic_analysis:
         st.subheader("🎯 떡상 주제 TOP 10")
         raw = st.session_state.topic_analysis
 
+        # 디버그: AI 원문 보기
+        with st.expander("🔍 AI 응답 원문 보기 (디버그용)", expanded=False):
+            st.text_area("원문", raw, height=300)
+
+        # 파싱 시도
         topics = []
         current = {}
+
         for line in raw.split("\n"):
             line = line.strip()
             if not line:
                 continue
-            m_topic = re.match(r"주제\s*(\d+)\s*[:：]\s*(.+)", line)
+
+            # 마크다운 기호 제거
+            line = re.sub(r"[*#_`>]", "", line).strip()
+            if not line:
+                continue
+
+            # 주제 시작 감지 (다양한 패턴 대응)
+            m_topic = re.match(r"주제\s*(\d+)\s*[:：.]\s*(.+)", line)
+            if not m_topic:
+                m_topic = re.match(r"(\d+)\s*[.)\]]\s*주제\s*[:：]?\s*(.+)", line)
+            if not m_topic:
+                m_topic = re.match(r"(\d+)\s*[.)\]]\s+(.{5,})", line)
             if m_topic:
-                if current:
+                if current and current.get("title"):
                     topics.append(current)
-                current = {"num": m_topic.group(1), "title": m_topic.group(2).strip(), "prob": 70,
-                           "source": "", "alts": [], "tags": "", "reason": ""}
+                current = {
+                    "num": m_topic.group(1),
+                    "title": m_topic.group(2).strip().strip(":：").strip(),
+                    "prob": 70,
+                    "source": "", "alts": [], "tags": "", "reason": ""
+                }
                 continue
-            m_prob = re.match(r"떡상\s*확률\s*[:：]\s*(\d+)", line)
-            if m_prob and current:
-                current["prob"] = int(m_prob.group(1))
+
+            if not current:
                 continue
-            m_src = re.match(r"출처\s*뉴스\s*[:：]\s*(.+)", line)
-            if m_src and current:
-                current["source"] = m_src.group(1).strip()
+
+            # 떡상확률
+            m_prob = re.search(r"떡상\s*확률\s*[:：.]\s*(\d+)", line)
+            if m_prob:
+                current["prob"] = min(int(m_prob.group(1)), 99)
                 continue
-            m_alt = re.match(r"대체\s*제목\s*\d*\s*[:：]\s*(.+)", line)
-            if m_alt and current:
-                current["alts"].append(m_alt.group(1).strip())
-                continue
-            m_tag = re.match(r"태그\s*[:：]\s*(.+)", line)
-            if m_tag and current:
-                current["tags"] = m_tag.group(1).strip()
-                continue
-            m_reason = re.match(r"근거\s*[:：]\s*(.+)", line)
-            if m_reason and current:
+
+            # 근거
+            m_reason = re.match(r"근거\s*[:：.]\s*(.+)", line)
+            if m_reason:
                 current["reason"] = m_reason.group(1).strip()
                 continue
-        if current:
+
+            # 출처뉴스
+            m_src = re.match(r"출처\s*뉴스?\s*[:：.]\s*(.+)", line)
+            if m_src:
+                current["source"] = m_src.group(1).strip()
+                continue
+
+            # 대체제목
+            m_alt = re.match(r"대체\s*제목\s*\d*\s*[:：.]\s*(.+)", line)
+            if m_alt:
+                current["alts"].append(m_alt.group(1).strip())
+                continue
+
+            # 태그
+            m_tag = re.match(r"태그\s*[:：.]\s*(.+)", line)
+            if m_tag:
+                current["tags"] = m_tag.group(1).strip()
+                continue
+
+        if current and current.get("title"):
             topics.append(current)
+
+        if not topics:
+            st.warning("AI 응답에서 주제를 파싱하지 못했습니다. 위의 'AI 응답 원문 보기'를 열어 확인해주세요.")
+        else:
+            st.info(f"총 {len(topics)}개 주제를 찾았습니다.")
 
         for i, t in enumerate(topics[:10]):
             prob = t.get("prob", 70)
@@ -239,6 +291,9 @@ with tab1:
     if st.button("이 주제로 진행 →"):
         st.session_state.selected_topic = manual_topic
         st.success(f"주제 설정 완료: {manual_topic}")
+
+
+
 
 
 # === 탭2: 롱폼 대본 ===

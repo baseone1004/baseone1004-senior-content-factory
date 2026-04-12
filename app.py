@@ -185,11 +185,9 @@ with tab1:
         st.subheader("🎯 떡상 주제 TOP 10")
         raw = st.session_state.topic_analysis
 
-        # 디버그: AI 원문 보기
         with st.expander("🔍 AI 응답 원문 보기 (디버그용)", expanded=False):
             st.text_area("원문", raw, height=300)
 
-        # 파싱 시도
         topics = []
         current = {}
 
@@ -198,12 +196,10 @@ with tab1:
             if not line:
                 continue
 
-            # 마크다운 기호 제거
             line = re.sub(r"[*#_`>]", "", line).strip()
             if not line:
                 continue
 
-            # 주제 시작 감지 (다양한 패턴 대응)
             m_topic = re.match(r"주제\s*(\d+)\s*[:：.]\s*(.+)", line)
             if not m_topic:
                 m_topic = re.match(r"(\d+)\s*[.)\]]\s*주제\s*[:：]?\s*(.+)", line)
@@ -223,31 +219,26 @@ with tab1:
             if not current:
                 continue
 
-            # 떡상확률
             m_prob = re.search(r"떡상\s*확률\s*[:：.]\s*(\d+)", line)
             if m_prob:
                 current["prob"] = min(int(m_prob.group(1)), 99)
                 continue
 
-            # 근거
             m_reason = re.match(r"근거\s*[:：.]\s*(.+)", line)
             if m_reason:
                 current["reason"] = m_reason.group(1).strip()
                 continue
 
-            # 출처뉴스
             m_src = re.match(r"출처\s*뉴스?\s*[:：.]\s*(.+)", line)
             if m_src:
                 current["source"] = m_src.group(1).strip()
                 continue
 
-            # 대체제목
             m_alt = re.match(r"대체\s*제목\s*\d*\s*[:：.]\s*(.+)", line)
             if m_alt:
                 current["alts"].append(m_alt.group(1).strip())
                 continue
 
-            # 태그
             m_tag = re.match(r"태그\s*[:：.]\s*(.+)", line)
             if m_tag:
                 current["tags"] = m_tag.group(1).strip()
@@ -255,6 +246,9 @@ with tab1:
 
         if current and current.get("title"):
             topics.append(current)
+
+        # 파싱된 주제 목록 저장
+        st.session_state["parsed_topics"] = topics
 
         if not topics:
             st.warning("AI 응답에서 주제를 파싱하지 못했습니다. 위의 'AI 응답 원문 보기'를 열어 확인해주세요.")
@@ -282,15 +276,34 @@ with tab1:
 </div>""", unsafe_allow_html=True)
             st.progress(min(prob, 100) / 100)
 
-            if st.button(f"이 주제로 선택 → {t.get('title','')[:30]}", key=f"pick_{i}"):
+            if st.button(f"✅ 선택 → {t.get('title','')[:30]}", key=f"pick_{i}"):
                 st.session_state.selected_topic = t.get("title", "")
-                st.success(f"선택됨: {t.get('title','')}")
+                st.rerun()
+
+        # 선택된 주제 표시
+        if st.session_state.selected_topic:
+            st.success(f"🎯 현재 선택된 주제: {st.session_state.selected_topic}")
 
     st.markdown("---")
-    manual_topic = st.text_input("✏️ 직접 주제 입력", value=st.session_state.selected_topic)
+
+    # 직접 입력
+    st.subheader("✏️ 직접 주제 입력")
+    manual_topic = st.text_input("주제를 직접 입력하세요", value="", placeholder="예: 2026년 부동산 전망")
     if st.button("이 주제로 진행 →"):
-        st.session_state.selected_topic = manual_topic
-        st.success(f"주제 설정 완료: {manual_topic}")
+        if manual_topic:
+            st.session_state.selected_topic = manual_topic
+            st.rerun()
+        else:
+            st.warning("주제를 입력하세요.")
+
+    # 현재 선택 상태 항상 표시
+    if st.session_state.selected_topic:
+        st.markdown("---")
+        st.markdown(f"### 🎯 현재 선택된 주제: {st.session_state.selected_topic}")
+        st.info("이제 '2.롱폼대본' 또는 '3.쇼츠대본' 탭으로 이동하세요. 주제가 자동 입력됩니다.")
+
+
+
 
 
 

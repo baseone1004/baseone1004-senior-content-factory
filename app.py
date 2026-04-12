@@ -80,10 +80,10 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "5.영상변환", "6.음성생성", "7.자막조정", "8.최종합성"
 ])
 
-# === 탭1: 주제 추천 (네이버 뉴스) ===
+# === 탭1: 주제 추천 (네이버 뉴스 + 스카이워크 분석) ===
 with tab1:
-    st.markdown("### 실시간 뉴스 기반 주제 추천")
-    st.caption("네이버 뉴스 API로 최신 트렌드를 검색하여 유튜브 영상 주제를 추천합니다.")
+    st.markdown("### 실시간 뉴스 기반 유튜브 떡상 주제 추천")
+    st.caption("네이버 뉴스에서 최신 트렌드를 수집하고, 스카이워크 AI가 유튜브 떡상 확률을 분석합니다.")
 
     col_search1, col_search2 = st.columns([3, 1])
     with col_search1:
@@ -94,8 +94,8 @@ with tab1:
     with col_search2:
         news_count = st.selectbox("키워드당 뉴스 수", [3, 5, 10], index=1)
 
-    if st.button("뉴스 검색 및 주제 추천", type="primary", use_container_width=True):
-        with st.spinner("네이버 뉴스 검색 중..."):
+    if st.button("떡상 주제 추천 받기", type="primary", use_container_width=True):
+        with st.spinner("네이버 뉴스 수집 중..."):
             if custom_keywords.strip():
                 kw_list = [k.strip() for k in custom_keywords.split(",") if k.strip()]
             else:
@@ -103,33 +103,147 @@ with tab1:
             results = st.session_state.api.naver.search_trending_topics(
                 keywords=kw_list, display_per_keyword=news_count
             )
-            if results:
-                st.session_state.news_results = results
-                st.success(f"총 {len(results)}개 뉴스 수집 완료")
-            else:
-                st.error("뉴스 검색 결과가 없습니다. API 키를 확인하세요.")
 
-    if st.session_state.news_results:
-        st.markdown(f"### 검색 결과 ({len(st.session_state.news_results)}건)")
-        for i, news in enumerate(st.session_state.news_results):
+        if not results:
+            st.error("뉴스 검색 결과가 없습니다. API 키를 확인하세요.")
+        else:
+            st.success(f"총 {len(results)}개 뉴스 수집 완료. 스카이워크 AI 분석 중...")
+
+            news_summary = ""
+            for i, r in enumerate(results[:30]):
+                news_summary += f"{i+1}. [{r.get('keyword','')}] {r['title']} - {r['description'][:100]}\n"
+
+            with st.spinner("스카이워크 AI가 떡상 주제를 분석 중... (약 1-2분)"):
+                analysis_prompt = f"""당신은 대한민국 최고의 유튜브 경제 사회 채널 기획자입니다.
+아래는 오늘 수집된 최신 뉴스 목록입니다.
+
+{news_summary}
+
+위 뉴스를 분석하여 유튜브 영상으로 만들었을 때 조회수가 폭발할 가능성이 높은 주제 열 개를 추천하십시오.
+
+반드시 아래 형식을 정확히 지켜서 출력하십시오. 다른 설명이나 인사말 없이 바로 시작하십시오.
+
+주제1: (유튜브 영상 제목 형태로 작성) | 떡상확률: (숫자)%
+출처: (참고한 뉴스 키워드)
+대안A: (같은 주제의 다른 제목 버전)
+대안B: (같은 주제의 또 다른 제목 버전)
+태그: (관련 태그 다섯 개를 쉼표로 구분)
+---
+주제2: (유튜브 영상 제목 형태로 작성) | 떡상확률: (숫자)%
+출처: (참고한 뉴스 키워드)
+대안A: (같은 주제의 다른 제목 버전)
+대안B: (같은 주제의 또 다른 제목 버전)
+태그: (관련 태그 다섯 개를 쉼표로 구분)
+---
+(이하 주제10까지 반복)
+
+떡상확률 판단 기준:
+구십 퍼센트 이상: 사회적 분노나 공포를 자극하는 초대형 이슈. 지금 당장 올리면 터지는 주제.
+칠십에서 팔십구 퍼센트: 대중의 관심이 높고 논쟁이 있는 주제. 타이밍이 중요.
+오십에서 육십구 퍼센트: 꾸준한 관심은 있지만 폭발력은 중간.
+오십 퍼센트 미만: 니치한 주제이거나 시의성이 약함.
+
+제목 작성 규칙:
+시청자가 클릭하지 않을 수 없는 강렬한 후킹 제목으로 작성하십시오.
+숫자와 구체적인 키워드를 포함하십시오.
+공포, 분노, 놀라움, 공감 중 하나의 감정을 자극하십시오."""
+
+                result, error = st.session_state.api.generate_long(analysis_prompt)
+                if error:
+                    st.error(f"분석 실패: {error}")
+                    st.session_state.news_results = results
+                else:
+                    st.session_state.news_results = results
+                    st.session_state["topic_analysis"] = result
+                    st.rerun()
+
+    if st.session_state.get("topic_analysis"):
+        st.markdown("### 떡상 주제 TOP 10")
+        raw = st.session_state["topic_analysis"]
+
+        topics = []
+        blocks = raw.split("---")
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            topic = {"title": "", "prob": "0", "source": "", "alt_a": "", "alt_b": "", "tags": ""}
+            for line in block.split("\n"):
+                line = line.strip()
+                if not line:
+                    continue
+                prob_match = re.search(r'주제\d+:\s*(.+?)\s*\|\s*떡상확률:\s*(\d+)%', line)
+                if prob_match:
+                    topic["title"] = prob_match.group(1).strip()
+                    topic["prob"] = prob_match.group(2).strip()
+                elif line.startswith("출처:"):
+                    topic["source"] = line.split(":", 1)[1].strip()
+                elif "대안A" in line or "대안 A" in line:
+                    topic["alt_a"] = line.split(":", 1)[1].strip() if ":" in line else ""
+                elif "대안B" in line or "대안 B" in line:
+                    topic["alt_b"] = line.split(":", 1)[1].strip() if ":" in line else ""
+                elif line.startswith("태그:"):
+                    topic["tags"] = line.split(":", 1)[1].strip()
+            if topic["title"]:
+                topics.append(topic)
+
+        if not topics:
+            st.text_area("분석 원본 (파싱 실패 시 참고)", raw, height=400)
+        else:
+            for i, t in enumerate(topics):
+                prob = int(t["prob"])
+                if prob >= 90:
+                    prob_color = "#FF0000"
+                    prob_emoji = "🔥🔥🔥"
+                    bar_color = "#FF0000"
+                elif prob >= 70:
+                    prob_color = "#FF6B00"
+                    prob_emoji = "🔥🔥"
+                    bar_color = "#FF6B00"
+                elif prob >= 50:
+                    prob_color = "#FFD700"
+                    prob_emoji = "🔥"
+                    bar_color = "#FFD700"
+                else:
+                    prob_color = "#888888"
+                    prob_emoji = ""
+                    bar_color = "#888888"
+
+                st.markdown(f"""<div style="background:linear-gradient(135deg,#1A1F2E,#2A2F3E);border:1px solid #333;border-radius:12px;padding:1.2rem;margin-bottom:1rem;">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem;">
+<span style="color:#FFE66D;font-weight:800;font-size:1.1rem;">{i+1}. {t['title']}</span>
+<span style="background:{prob_color};color:#fff;padding:4px 12px;border-radius:20px;font-weight:800;font-size:1rem;">{prob_emoji} {t['prob']}%</span>
+</div>
+<div style="background:#333;border-radius:8px;height:8px;margin-bottom:.5rem;">
+<div style="background:{bar_color};border-radius:8px;height:8px;width:{t['prob']}%;"></div>
+</div>
+<div style="color:#aaa;font-size:.8rem;">출처: {t.get('source','')} | 태그: {t.get('tags','')}</div>
+<div style="color:#888;font-size:.8rem;margin-top:.3rem;">대안A: {t.get('alt_a','')} | 대안B: {t.get('alt_b','')}</div>
+</div>""", unsafe_allow_html=True)
+
+                if st.button(f"이 주제로 대본 만들기", key=f"pick_topic_{i}"):
+                    st.session_state.selected_topic = t["title"]
+                    st.success(f"선택됨: {t['title']}")
+
+        st.markdown("---")
+        manual_topic = st.text_input("또는 직접 주제 입력", key="manual_input")
+        if manual_topic:
+            if st.button("이 주제로 진행", key="manual_btn"):
+                st.session_state.selected_topic = manual_topic
+                st.success(f"선택됨: {manual_topic}")
+
+    elif st.session_state.news_results and not st.session_state.get("topic_analysis"):
+        st.markdown(f"### 뉴스 원본 ({len(st.session_state.news_results)}건)")
+        for i, news in enumerate(st.session_state.news_results[:20]):
             st.markdown(f"""<div class="news-card">
 <div class="news-title">[{news.get('keyword','')}] {news['title']}</div>
 <div class="news-desc">{news['description'][:150]}</div>
 <div class="news-meta">{news.get('pubDate','')}</div>
 </div>""", unsafe_allow_html=True)
-            if st.button(f"이 주제로 대본 만들기", key=f"pick_{i}"):
-                st.session_state.selected_topic = news["title"]
-                st.success(f"선택된 주제: {news['title']}")
-
-        st.markdown("---")
-        manual_topic = st.text_input("또는 직접 주제 입력")
-        if manual_topic:
-            if st.button("이 주제로 진행", key="manual_topic_btn"):
-                st.session_state.selected_topic = manual_topic
-                st.success(f"선택된 주제: {manual_topic}")
 
     if st.session_state.selected_topic:
         st.info(f"현재 선택된 주제: **{st.session_state.selected_topic}**")
+
 
 # === 탭2: 롱폼 대본 ===
 with tab2:

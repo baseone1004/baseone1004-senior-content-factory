@@ -478,39 +478,27 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 with tab1:
     st.header("떡상 주제 추천")
 
-    # 채널 카테고리
-    categories = ["경제/사회", "부동산", "주식/투자", "IT/기술", "건강/의학", "교육", "정치", "국제", "문화/예술", "법률", "환경", "스포츠", "라이프스타일", "역사", "직접 입력"]
-    cat_col, kw_col, cnt_col = st.columns([2, 3, 1])
+    # 채널 카테고리 (4개만)
+    categories = [
+        "경제/사회",
+        "시니어 창작 민담/설화",
+        "창작 미스터리/괴담",
+        "창작 역사",
+    ]
+
+    # 카테고리별 자동 검색 키워드 (키워드 입력란 제거 → 자동 매핑)
+    CATEGORY_SEARCH_MAP = {
+        "경제/사회": ["경제 위기", "물가 상승", "고용 시장", "자영업 폐업", "부동산 시장", "금리"],
+        "시니어 창작 민담/설화": ["한국 민담", "전래동화", "설화", "옛날이야기", "구전설화"],
+        "창작 미스터리/괴담": ["미스터리 사건", "괴담", "미해결 사건", "도시전설", "공포"],
+        "창작 역사": ["한국 역사", "역사 인물", "조선시대", "삼국시대", "근현대사"],
+    }
+
+    cat_col, cnt_col = st.columns([3, 1])
     with cat_col:
         selected_cat = st.selectbox("채널 카테고리", categories, index=0, key="channel_cat_select")
-    with kw_col:
-        keyword = st.text_input("키워드", "시니어", key="search_keyword")
     with cnt_col:
         news_count = st.number_input("뉴스 수", 3, 20, 10, key="news_count")
-
-    # 키워드 추천
-    kw_c1, kw_c2 = st.columns([1, 1])
-    with kw_c1:
-        if st.button("키워드 추천 받기", use_container_width=True):
-            if not api:
-                st.error("API 미연결")
-            else:
-                with st.spinner("키워드 분석 중..."):
-                    cat = selected_cat if selected_cat != "직접 입력" else keyword
-                    kw_prompt = f"'{cat}' 카테고리의 유튜브 트렌드 키워드 20개를 추천해줘. 한 줄에 하나씩, 번호 없이 키워드만 출력해."
-                    kw_raw = safe_generate(kw_prompt)
-                    if kw_raw:
-                        kws = [line.strip().strip("-").strip("•").strip() for line in kw_raw.strip().split("\n") if line.strip() and not line.strip().startswith("[")]
-                        st.session_state.recommended_keywords = kws[:20]
-
-    if st.session_state.recommended_keywords:
-        st.markdown("**추천 키워드** (클릭하면 검색어에 적용)")
-        cols = st.columns(5)
-        for idx, kw in enumerate(st.session_state.recommended_keywords):
-            with cols[idx % 5]:
-                if st.button(kw, key=f"kw_{idx}", use_container_width=True):
-                    st.session_state.search_keyword = kw
-                    st.rerun()
 
     st.divider()
 
@@ -518,30 +506,92 @@ with tab1:
         if not api:
             st.error("API 미연결")
         else:
-            with st.spinner("분석 중..."):
-                news = safe_naver_search(keyword, news_count)
+            with st.spinner("뉴스 수집 및 분석 중..."):
+                # 카테고리에 매핑된 키워드로 자동 검색
+                search_keywords = CATEGORY_SEARCH_MAP.get(selected_cat, [selected_cat])
+                all_news = []
+                for kw in search_keywords:
+                    results = safe_naver_search(kw, count=news_count)
+                    all_news.extend(results)
+
+                # 중복 제거 및 제한
+                seen_titles = set()
+                unique_news = []
+                for item in all_news:
+                    t = item.get("title", "") if isinstance(item, dict) else str(item)
+                    short = t[:30]
+                    if short not in seen_titles:
+                        seen_titles.add(short)
+                        unique_news.append(item)
+                unique_news = unique_news[:news_count * 2]
+
                 nt = ""
-                for item in news[:news_count]:
+                for item in unique_news:
                     t = re.sub(r'<[^>]+>', '', str(item.get("title", "") if isinstance(item, dict) else item))
                     d = re.sub(r'<[^>]+>', '', str(item.get("description", "") if isinstance(item, dict) else ""))
                     nt += f"- {t}: {d}\n"
-                with st.expander("뉴스 (디버그)"):
+
+                with st.expander("수집된 뉴스 (디버그)"):
                     st.text(nt or "(없음)")
 
-                prompt = f"""아래 뉴스를 분석해서 유튜브 떡상 주제 10개를 추천해줘.
-카테고리: {selected_cat}
-키워드: {keyword}
+                # 카테고리별 프롬프트 분기
+                if selected_cat == "경제/사회":
+                    prompt = f"""아래 최신 뉴스를 분석해서 시니어 유튜브 채널용 떡상 주제 10개를 추천해줘.
+카테고리: 경제/사회
 뉴스:
 {nt or '(최신 뉴스 없음)'}
 
+반드시 사실 기반 뉴스에서 파생된 주제만 추천해. 창작 금지.
 반드시 정확히 10개를 아래 형식으로 출력해:
 1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
 2번|제목: ...|확률: ...|출처: ...|대안: ...|태그: ...
 (10번까지)"""
 
+                elif selected_cat == "시니어 창작 민담/설화":
+                    prompt = f"""당신은 시니어 유튜브 채널 기획자입니다.
+카테고리: 시니어 창작 민담/설화
+
+아래 뉴스에서 영감을 받아 한국 전래동화, 민담, 설화를 현대적으로 재해석한 시니어 맞춤 영상 주제 10개를 추천해줘.
+참고 뉴스:
+{nt or '(없음)'}
+
+옛날이야기를 시니어가 손주에게 들려주는 느낌으로 기획해.
+반드시 정확히 10개를 아래 형식으로 출력해:
+1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
+(10번까지)"""
+
+                elif selected_cat == "창작 미스터리/괴담":
+                    prompt = f"""당신은 시니어 유튜브 채널 기획자입니다.
+카테고리: 창작 미스터리/괴담
+
+아래 뉴스에서 영감을 받아 미스터리, 괴담, 도시전설 주제의 시니어 맞춤 영상 주제 10개를 추천해줘.
+참고 뉴스:
+{nt or '(없음)'}
+
+무섭지만 흥미로운 이야기, 미해결 사건 분석, 도시전설 검증 등의 방향으로 기획해.
+반드시 정확히 10개를 아래 형식으로 출력해:
+1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
+(10번까지)"""
+
+                elif selected_cat == "창작 역사":
+                    prompt = f"""당신은 시니어 유튜브 채널 기획자입니다.
+카테고리: 창작 역사
+
+아래 뉴스에서 영감을 받아 한국 역사를 재미있게 풀어내는 시니어 맞춤 영상 주제 10개를 추천해줘.
+참고 뉴스:
+{nt or '(없음)'}
+
+역사 인물, 사건, 시대를 흥미진진하게 이야기하는 방향으로 기획해.
+반드시 정확히 10개를 아래 형식으로 출력해:
+1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
+(10번까지)"""
+
+                else:
+                    prompt = f"'{selected_cat}' 카테고리로 시니어 유튜브 주제 10개 추천해줘."
+
                 raw_str = safe_generate(prompt)
 
-                with st.expander("AI 응답"):
+                with st.expander("AI 응답 (디버그)"):
                     st.code(raw_str if raw_str else "(응답 없음)")
 
                 topics = []
@@ -563,7 +613,6 @@ with tab1:
                                 "tags": safe_group(r'태그:\s*(.+?)(?:\||$)', line),
                             })
                         else:
-                            # 번호. 제목 형식 대응
                             m2 = re.match(r'^\d+[\.\)]\s*(.+)', line)
                             if m2:
                                 topics.append({"title": m2.group(1).strip(), "probability": "", "source": "", "alternative": "", "tags": ""})
@@ -592,6 +641,7 @@ with tab1:
             st.session_state.selected_topic = manual.strip()
             sync_topic()
             st.rerun()
+
 
 
 # ═══ 탭2: 롱폼 대본 ═══

@@ -13,6 +13,12 @@ import os
 import time
 import base64
 from datetime import datetime
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 st.set_page_config(page_title="시니어 콘텐츠 팩토리", page_icon="🎬", layout="wide")
 

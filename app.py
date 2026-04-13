@@ -125,118 +125,58 @@ def extract_section(text, section_name):
         return m2.group(1).strip()
     return ""
 
-def safe_generate(messages, max_tokens=4096, temperature=0.7):
+def safe_generate(system_prompt, user_prompt, max_tokens=4096):
+    """Skywork APIFree LLM 호출"""
     if not SKYWORK_API_KEY:
-        st.error("Skywork API 키가 설정되지 않았습니다.")
-        return ""
+        return "FAILED - DO NOT RETRY: Skywork API 키가 설정되지 않았습니다."
     try:
+        headers = {
+            "Authorization": f"Bearer {SKYWORK_API_KEY}",
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "model": "gpt-4o-mini",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
+            ],
+            "max_tokens": max_tokens,
+            "temperature": 0.7
+        }
         resp = requests.post(
             f"{SKYWORK_LLM_BASE}/v1/chat/completions",
-            headers={"Authorization": f"Bearer {SKYWORK_API_KEY}", "Content-Type": "application/json"},
-            json={"model": "gpt-4o", "messages": messages, "max_tokens": max_tokens, "temperature": temperature},
-            timeout=180)
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"]
-        st.error(f"LLM API 오류: {resp.status_code}")
-        return ""
+            headers=headers,
+            json=payload,
+            timeout=120
+        )
+
+        # 응답 상태 코드 확인
+        if resp.status_code != 200:
+            return f"FAILED - DO NOT RETRY: API 상태코드 {resp.status_code} - {resp.text[:200]}"
+
+        data = resp.json()
+
+        # 에러 응답 확인
+        if "error" in data:
+            err_msg = data["error"].get("message", str(data["error"]))
+            return f"FAILED - DO NOT RETRY: {err_msg}"
+
+        # choices 키 존재 확인
+        if "choices" not in data:
+            return f"FAILED - DO NOT RETRY: 응답에 choices 없음. 응답 키: {list(data.keys())}"
+
+        if len(data["choices"]) == 0:
+            return "FAILED - DO NOT RETRY: choices 배열이 비어있습니다."
+
+        return data["choices"][0]["message"]["content"]
+
+    except requests.exceptions.Timeout:
+        return "FAILED - DO NOT RETRY: 요청 시간 초과 (120초)"
+    except requests.exceptions.ConnectionError:
+        return "FAILED - DO NOT RETRY: 서버 연결 실패"
     except Exception as e:
-        st.error(f"LLM 요청 실패: {e}")
-        return ""
+        return f"FAILED - DO NOT RETRY: {str(e)}"
 
-def generate_image_skywork(prompt, filename="output.png", ref_image_path=None):
-    if not SKYWORK_API_KEY:
-        return None
-    payload = {"prompt": prompt, "width": 720, "height": 1280}
-    if ref_image_path and os.path.exists(ref_image_path):
-        with open(ref_image_path, "rb") as f:
-            payload["reference_image"] = base64.b64encode(f.read()).decode()
-    try:
-        resp = requests.post(SKYWORK_IMG_ENDPOINT, json=payload,
-                             headers={"Authorization": f"Bearer {SKYWORK_API_KEY}", "Content-Type": "application/json"},
-                             timeout=120)
-        if resp.status_code == 200:
-            result = resp.json()
-            img_raw = result.get("image", result.get("data", ""))
-            if img_raw:
-                os.makedirs("generated_images", exist_ok=True)
-                path = os.path.join("generated_images", filename)
-                with open(path, "wb") as f:
-                    f.write(base64.b64decode(img_raw))
-                return path
-        return None
-    except Exception:
-        return None
-
-def kie_create_task(image_url, prompt="", duration="5"):
-    if not KIE_API_KEY:
-        return None
-    try:
-        resp = requests.post(
-            f"{KIE_BASE}/jobs/createTask",
-            headers={"Authorization": f"Bearer {KIE_API_KEY}", "Content-Type": "application/json"},
-            json={"model": "kling-2.6/image-to-video",
-                  "input": {"prompt": prompt if prompt else "subtle cinematic camera movement, slow zoom",
-                            "image_urls": [image_url], "sound": False, "duration": duration}},
-            timeout=60)
-        if resp.status_code == 200:
-            data = resp.json()
-            return data.get("data", {}).get("task_id", data.get("task_id", ""))
-        return None
-    except Exception:
-        return None
-
-def kie_check_task(task_id):
-    if not KIE_API_KEY or not task_id:
-        return None, None
-    try:
-        resp = requests.post(
-            f"{KIE_BASE}/jobs/queryTaskInfo",
-            headers={"Authorization": f"Bearer {KIE_API_KEY}", "Content-Type": "application/json"},
-            json={"task_id": task_id}, timeout=30)
-        if resp.status_code == 200:
-            data = resp.json().get("data", {})
-            status = data.get("status", "")
-            output = data.get("output", {})
-            video_url = ""
-            if isinstance(output, dict):
-                video_url = output.get("video_url", output.get("url", ""))
-            elif isinstance(output, list) and output:
-                video_url = output[0] if isinstance(output[0], str) else output[0].get("url", "")
-            return status, video_url
-        return None, None
-    except Exception:
-        return None, None
-
-def inworld_tts(text, voice="Hyunwoo", speed=1.0, temperature=0.5, lang="ko"):
-    if not INWORLD_API_KEY:
-        return None
-    try:
-        resp = requests.post(
-            INWORLD_TTS_ENDPOINT,
-            headers={"Authorization": f"Bearer {INWORLD_API_KEY}", "Content-Type": "application/json"},
-            json={"text": text, "voice": voice, "speed": speed, "temperature": temperature, "language": lang},
-            timeout=120)
-        if resp.status_code == 200:
-            return resp.content
-        return None
-    except Exception:
-        return None
-
-def generate_srt(sentences):
-    srt, t = [], 0.0
-    for i, s in enumerate(sentences):
-        if not s.strip():
-            continue
-        start, dur = t, max(2.0, len(s) * 0.12)
-        end = start + dur
-        sh, sm, ss = int(start//3600), int((start%3600)//60), start%60
-        eh, em, es = int(end//3600), int((end%3600)//60), end%60
-        srt.append(f"{i+1}")
-        srt.append(f"{sh:02d}:{sm:02d}:{ss:06.3f} --> {eh:02d}:{em:02d}:{es:06.3f}".replace('.',','))
-        srt.append(s.strip())
-        srt.append("")
-        t = end + 0.2
-    return "\n".join(srt)
 
 # ═══ 세션 초기화 ═══
 defaults = {

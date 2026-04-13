@@ -807,77 +807,252 @@ with tab6:
                     else:
                         st.error(f"쇼츠 {sd['num']}편 실패")
 
-# ═══ 탭7: 자막 스타일 (글씨체 목록만 한국어로 변경, 나머지 원래대로) ═══
+# ═══ 탭7: 자막 스타일 ═══
 with tab7:
-    st.header("Subtitle Style Settings")
+    st.header("자막 스타일 설정")
 
-    sub_long, sub_shorts = st.tabs(["Longform", "Shorts"])
+    sub_long, sub_shorts = st.tabs(["롱폼", "쇼츠"])
 
+    # ── 롱폼 자막 ──
     with sub_long:
-        st.subheader("Longform Subtitle Style")
-        col1, col2 = st.columns(2)
-        with col1:
-            cur_font_eng = st.session_state["subtitle_style_long"].get("font","NotoSansKR-Bold")
-            reverse_map = {v:k for k,v in FONT_MAP.items()}
-            cur_font_kr = reverse_map.get(cur_font_eng, FONT_LIST[0])
-            idx_l = FONT_LIST.index(cur_font_kr) if cur_font_kr in FONT_LIST else 0
-            lf = st.selectbox("Font", FONT_LIST, index=idx_l, key="sub_font_long")
-            ls = st.slider("Size", 20, 100, st.session_state["subtitle_style_long"]["size"], key="sub_size_long")
-        with col2:
-            lc = st.color_picker("Color", st.session_state["subtitle_style_long"]["color"], key="sub_color_long")
-            loc = st.color_picker("Outline Color", st.session_state["subtitle_style_long"]["outline_color"], key="sub_oc_long")
-            low = st.slider("Outline Width", 0, 10, st.session_state["subtitle_style_long"]["outline_width"], key="sub_ow_long")
+        st.subheader("롱폼 자막 스타일")
 
-        pos_opts = ["bottom-center","bottom-left","bottom-right","center","top-center","top-left","top-right"]
-        cur_pos = st.session_state["subtitle_style_long"].get("position","bottom-center")
-        lp = st.selectbox("Position", pos_opts, index=pos_opts.index(cur_pos) if cur_pos in pos_opts else 0, key="sub_pos_long")
-        lbo = st.slider("BG Opacity", 0.0, 1.0, st.session_state["subtitle_style_long"]["bg_opacity"], 0.1, key="sub_bo_long")
+        col_setting, col_preview = st.columns([1, 1])
 
+        with col_setting:
+            # 글씨체
+            reverse_map = {v: k for k, v in FONT_MAP.items()}
+            cur_font_eng_l = st.session_state["subtitle_style_long"].get("font", "NotoSansKR-Bold")
+            cur_font_kr_l = reverse_map.get(cur_font_eng_l, FONT_LIST[0])
+            idx_l = FONT_LIST.index(cur_font_kr_l) if cur_font_kr_l in FONT_LIST else 0
+            lf = st.selectbox("글씨체", FONT_LIST, index=idx_l, key="sub_font_long")
+
+            # 글자 크기
+            ls = st.slider("글자 크기", 20, 100, st.session_state["subtitle_style_long"].get("size", 48), key="sub_size_long")
+
+            # 색상
+            c1, c2 = st.columns(2)
+            with c1:
+                lc = st.color_picker("글자 색상", st.session_state["subtitle_style_long"].get("color", "#FFFFFF"), key="sub_color_long")
+            with c2:
+                loc = st.color_picker("외곽선 색상", st.session_state["subtitle_style_long"].get("outline_color", "#000000"), key="sub_oc_long")
+
+            # 외곽선 두께
+            low = st.slider("외곽선 두께", 0, 10, st.session_state["subtitle_style_long"].get("outline_width", 3), key="sub_ow_long")
+
+            # 배경 투명도
+            lbo = st.slider("배경 투명도", 0.0, 1.0, st.session_state["subtitle_style_long"].get("bg_opacity", 0.0), 0.05, key="sub_bo_long")
+
+            st.markdown("---")
+            st.markdown("**위치 미세조정**")
+
+            pos_base_opts = ["하단 중앙", "하단 좌측", "하단 우측", "중앙", "상단 중앙", "상단 좌측", "상단 우측"]
+            pos_base_map = {
+                "하단 중앙": "bottom-center",
+                "하단 좌측": "bottom-left",
+                "하단 우측": "bottom-right",
+                "중앙": "center",
+                "상단 중앙": "top-center",
+                "상단 좌측": "top-left",
+                "상단 우측": "top-right",
+            }
+            pos_base_reverse = {v: k for k, v in pos_base_map.items()}
+
+            cur_pos_eng_l = st.session_state["subtitle_style_long"].get("position", "bottom-center")
+            cur_pos_kr_l = pos_base_reverse.get(cur_pos_eng_l, "하단 중앙")
+            lp = st.selectbox("기본 위치", pos_base_opts, index=pos_base_opts.index(cur_pos_kr_l) if cur_pos_kr_l in pos_base_opts else 0, key="sub_pos_long")
+
+            p1, p2 = st.columns(2)
+            with p1:
+                l_offset_x = st.slider("좌우 미세조정", -200, 200, st.session_state["subtitle_style_long"].get("offset_x", 0), 5, key="sub_ox_long")
+            with p2:
+                l_offset_y = st.slider("상하 미세조정", -200, 200, st.session_state["subtitle_style_long"].get("offset_y", 0), 5, key="sub_oy_long")
+
+        # 세션 저장
         st.session_state["subtitle_style_long"] = {
-            "font": FONT_MAP.get(lf,"NotoSansKR-Bold"), "size": ls, "color": lc,
-            "outline_color": loc, "outline_width": low, "position": lp, "bg_opacity": lbo
+            "font": FONT_MAP.get(lf, "NotoSansKR-Bold"),
+            "font_kr": lf,
+            "size": ls,
+            "color": lc,
+            "outline_color": loc,
+            "outline_width": low,
+            "position": pos_base_map.get(lp, "bottom-center"),
+            "position_kr": lp,
+            "offset_x": l_offset_x,
+            "offset_y": l_offset_y,
+            "bg_opacity": lbo,
         }
 
-        st.write("Preview:")
-        st.markdown(f'<div style="background:rgba(0,0,0,{lbo});padding:10px 20px;display:inline-block;border-radius:5px;">'
-                    f'<span style="font-size:{ls}px;color:{lc};text-shadow:-{low}px -{low}px 0 {loc},{low}px -{low}px 0 {loc},'
-                    f'-{low}px {low}px 0 {loc},{low}px {low}px 0 {loc};">'
-                    f'시니어 콘텐츠 팩토리 자막 미리보기</span></div>', unsafe_allow_html=True)
+        # 미리보기 (오른쪽)
+        with col_preview:
+            st.markdown("**미리보기**")
 
+            # 기본 위치 → CSS 변환
+            pos_css_map = {
+                "하단 중앙": ("center", "flex-end"),
+                "하단 좌측": ("flex-start", "flex-end"),
+                "하단 우측": ("flex-end", "flex-end"),
+                "중앙": ("center", "center"),
+                "상단 중앙": ("center", "flex-start"),
+                "상단 좌측": ("flex-start", "flex-start"),
+                "상단 우측": ("flex-end", "flex-start"),
+            }
+            justify, align = pos_css_map.get(lp, ("center", "flex-end"))
+
+            shadow_l = (f"-{low}px -{low}px 0 {loc},{low}px -{low}px 0 {loc},"
+                        f"-{low}px {low}px 0 {loc},{low}px {low}px 0 {loc}")
+
+            preview_l = f"""
+            <div style="
+                width:100%;
+                height:400px;
+                background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);
+                border-radius:12px;
+                display:flex;
+                justify-content:{justify};
+                align-items:{align};
+                padding:20px;
+                position:relative;
+                overflow:hidden;
+            ">
+                <div style="
+                    position:absolute;
+                    width:100%;height:100%;top:0;left:0;
+                    background:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22 opacity=%220.05%22>🎬</text></svg>') center/contain no-repeat;
+                "></div>
+                <div style="
+                    background:rgba(0,0,0,{lbo});
+                    padding:12px 24px;
+                    border-radius:6px;
+                    transform:translate({l_offset_x}px,{l_offset_y}px);
+                    z-index:1;
+                ">
+                    <span style="
+                        font-size:{ls}px;
+                        color:{lc};
+                        text-shadow:{shadow_l};
+                        font-weight:bold;
+                        white-space:nowrap;
+                    ">시니어 콘텐츠 팩토리</span>
+                </div>
+            </div>
+            """
+            st.markdown(preview_l, unsafe_allow_html=True)
+
+            st.caption(f"글씨체: {lf} | 크기: {ls}px | 위치: {lp} | 좌우: {l_offset_x}px | 상하: {l_offset_y}px")
+
+    # ── 쇼츠 자막 ──
     with sub_shorts:
-        st.subheader("Shorts Subtitle Style")
-        col1, col2 = st.columns(2)
-        with col1:
-            cur_font_eng_s = st.session_state["subtitle_style_shorts"].get("font","NotoSansKR-Bold")
-            cur_font_kr_s = reverse_map.get(cur_font_eng_s, FONT_LIST[0])
+        st.subheader("쇼츠 자막 스타일")
+
+        col_setting_s, col_preview_s = st.columns([1, 1])
+
+        with col_setting_s:
+            reverse_map_s = {v: k for k, v in FONT_MAP.items()}
+            cur_font_eng_s = st.session_state["subtitle_style_shorts"].get("font", "NotoSansKR-Bold")
+            cur_font_kr_s = reverse_map_s.get(cur_font_eng_s, FONT_LIST[0])
             idx_s = FONT_LIST.index(cur_font_kr_s) if cur_font_kr_s in FONT_LIST else 0
-            sf = st.selectbox("Font", FONT_LIST, index=idx_s, key="sub_font_shorts")
-            ss_size = st.slider("Size", 20, 120, st.session_state["subtitle_style_shorts"]["size"], key="sub_size_shorts")
-        with col2:
-            sc_c = st.color_picker("Color", st.session_state["subtitle_style_shorts"]["color"], key="sub_color_shorts")
-            soc = st.color_picker("Outline Color", st.session_state["subtitle_style_shorts"]["outline_color"], key="sub_oc_shorts")
-            sow = st.slider("Outline Width", 0, 10, st.session_state["subtitle_style_shorts"]["outline_width"], key="sub_ow_shorts")
+            sf = st.selectbox("글씨체", FONT_LIST, index=idx_s, key="sub_font_shorts")
 
-        sp = st.selectbox("Position", pos_opts, index=pos_opts.index(st.session_state["subtitle_style_shorts"].get("position","center")) if st.session_state["subtitle_style_shorts"].get("position","center") in pos_opts else 3, key="sub_pos_shorts")
-        sbo = st.slider("BG Opacity", 0.0, 1.0, st.session_state["subtitle_style_shorts"]["bg_opacity"], 0.1, key="sub_bo_shorts")
+            ss_size = st.slider("글자 크기", 20, 120, st.session_state["subtitle_style_shorts"].get("size", 36), key="sub_size_shorts")
 
+            c3, c4 = st.columns(2)
+            with c3:
+                sc_c = st.color_picker("글자 색상", st.session_state["subtitle_style_shorts"].get("color", "#FFFFFF"), key="sub_color_shorts")
+            with c4:
+                soc = st.color_picker("외곽선 색상", st.session_state["subtitle_style_shorts"].get("outline_color", "#000000"), key="sub_oc_shorts")
+
+            sow = st.slider("외곽선 두께", 0, 10, st.session_state["subtitle_style_shorts"].get("outline_width", 2), key="sub_ow_shorts")
+
+            sbo = st.slider("배경 투명도", 0.0, 1.0, st.session_state["subtitle_style_shorts"].get("bg_opacity", 0.0), 0.05, key="sub_bo_shorts")
+
+            st.markdown("---")
+            st.markdown("**위치 미세조정**")
+
+            cur_pos_eng_s = st.session_state["subtitle_style_shorts"].get("position", "center")
+            cur_pos_kr_s = pos_base_reverse.get(cur_pos_eng_s, "중앙")
+            sp = st.selectbox("기본 위치", pos_base_opts, index=pos_base_opts.index(cur_pos_kr_s) if cur_pos_kr_s in pos_base_opts else 3, key="sub_pos_shorts")
+
+            p3, p4 = st.columns(2)
+            with p3:
+                s_offset_x = st.slider("좌우 미세조정", -200, 200, st.session_state["subtitle_style_shorts"].get("offset_x", 0), 5, key="sub_ox_shorts")
+            with p4:
+                s_offset_y = st.slider("상하 미세조정", -200, 200, st.session_state["subtitle_style_shorts"].get("offset_y", 0), 5, key="sub_oy_shorts")
+
+        # 세션 저장
         st.session_state["subtitle_style_shorts"] = {
-            "font": FONT_MAP.get(sf,"NotoSansKR-Bold"), "size": ss_size, "color": sc_c,
-            "outline_color": soc, "outline_width": sow, "position": sp, "bg_opacity": sbo
+            "font": FONT_MAP.get(sf, "NotoSansKR-Bold"),
+            "font_kr": sf,
+            "size": ss_size,
+            "color": sc_c,
+            "outline_color": soc,
+            "outline_width": sow,
+            "position": pos_base_map.get(sp, "center"),
+            "position_kr": sp,
+            "offset_x": s_offset_x,
+            "offset_y": s_offset_y,
+            "bg_opacity": sbo,
         }
 
-        st.write("Preview:")
-        st.markdown(f'<div style="background:rgba(0,0,0,{sbo});padding:10px 20px;display:inline-block;border-radius:5px;">'
-                    f'<span style="font-size:{ss_size}px;color:{sc_c};text-shadow:-{sow}px -{sow}px 0 {soc},{sow}px -{sow}px 0 {soc},'
-                    f'-{sow}px {sow}px 0 {soc},{sow}px {sow}px 0 {soc};">'
-                    f'쇼츠 자막 미리보기</span></div>', unsafe_allow_html=True)
+        # 미리보기 (오른쪽, 세로형)
+        with col_preview_s:
+            st.markdown("**미리보기**")
 
+            justify_s, align_s = pos_css_map.get(sp, ("center", "center"))
+
+            shadow_s = (f"-{sow}px -{sow}px 0 {soc},{sow}px -{sow}px 0 {soc},"
+                        f"-{sow}px {sow}px 0 {soc},{sow}px {sow}px 0 {soc}")
+
+            preview_s = f"""
+            <div style="
+                width:225px;
+                height:400px;
+                background:linear-gradient(135deg,#0f0f23,#1a0a2e,#2d1b69);
+                border-radius:12px;
+                display:flex;
+                justify-content:{justify_s};
+                align-items:{align_s};
+                padding:15px;
+                position:relative;
+                overflow:hidden;
+                margin:0 auto;
+            ">
+                <div style="
+                    position:absolute;
+                    width:100%;height:100%;top:0;left:0;
+                    background:url('data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22 opacity=%220.05%22>📱</text></svg>') center/contain no-repeat;
+                "></div>
+                <div style="
+                    background:rgba(0,0,0,{sbo});
+                    padding:8px 16px;
+                    border-radius:6px;
+                    transform:translate({s_offset_x}px,{s_offset_y}px);
+                    z-index:1;
+                ">
+                    <span style="
+                        font-size:{ss_size}px;
+                        color:{sc_c};
+                        text-shadow:{shadow_s};
+                        font-weight:bold;
+                        white-space:nowrap;
+                    ">쇼츠 자막</span>
+                </div>
+            </div>
+            """
+            st.markdown(preview_s, unsafe_allow_html=True)
+
+            st.caption(f"글씨체: {sf} | 크기: {ss_size}px | 위치: {sp} | 좌우: {s_offset_x}px | 상하: {s_offset_y}px")
+
+    # ── 내보내기 ──
     st.divider()
-    if st.button("Export JSON", key="btn_export_sub"):
-        export = {"longform": st.session_state["subtitle_style_long"], "shorts": st.session_state["subtitle_style_shorts"]}
+    if st.button("자막 스타일 내보내기", key="btn_export_sub"):
+        export = {
+            "롱폼": st.session_state["subtitle_style_long"],
+            "쇼츠": st.session_state["subtitle_style_shorts"]
+        }
         j = json.dumps(export, ensure_ascii=False, indent=2)
         st.code(j, language="json")
-        st.download_button("Download JSON", j, "subtitle_styles.json", mime="application/json", key="dl_sub_json")
+        st.download_button("스타일 파일 다운로드", j, "subtitle_styles.json", mime="application/json", key="dl_sub_json")
 
 # ═══ 탭8: 최종 합치기 ═══
 with tab8:

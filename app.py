@@ -156,8 +156,9 @@ def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
             json=payload,
             timeout=120
         )
-        if resp.status_code != 200:
-            return f"FAILED - DO NOT RETRY: API 상태코드 {resp.status_code} - {resp.text[:300]}"
+                if resp.status_code != 200:
+            return f"FAILED - DO NOT RETRY: 상태코드 {resp.status_code} / 주소: {SKYWORK_LLM_BASE}/v1/chat/completions / 키앞5자: {SKYWORK_API_KEY[:5]}... / 응답: {resp.text[:200]}"
+
         data = resp.json()
         if "error" in data:
             return f"FAILED - DO NOT RETRY: {data['error'].get('message', str(data['error']))}"

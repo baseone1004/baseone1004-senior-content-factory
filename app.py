@@ -27,10 +27,11 @@ def load_key(name):
     val = os.environ.get(name, "")
     if not val:
         try:
-            val = st.secrets.get(name, "")
+            val = st.secrets[name]
         except Exception:
-            pass
-    return val
+            val = ""
+    return val if val else ""
+
 
 SKYWORK_API_KEY = load_key("SKYWORK_API_KEY")
 KIE_API_KEY = load_key("KIE_API_KEY")

@@ -36,6 +36,8 @@ def load_key(name):
 SKYWORK_API_KEY = load_key("SKYWORK_API_KEY")
 KIE_API_KEY = load_key("KIE_API_KEY")
 INWORLD_API_KEY = load_key("INWORLD_API_KEY")
+GEMINI_API_KEY = load_key("GEMINI_API_KEY")
+
 
 SKYWORK_LLM_BASE = "https://api.apifree.ai"
 SKYWORK_IMG_ENDPOINT = "https://api.apifree.ai/v1/image/submit"
@@ -140,37 +142,45 @@ def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
             "Authorization": f"Bearer {SKYWORK_API_KEY}",
             "Content-Type": "application/json"
         }
+        payload = {def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
+    if not GEMINI_API_KEY:
+        return "FAILED - DO NOT RETRY: Gemini API 키가 설정되지 않았습니다."
+    try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+        headers = {"Content-Type": "application/json"}
         payload = {
-            "model": "gpt-4o-mini",
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}]
+                }
             ],
-            "max_tokens": max_tokens,
-            "temperature": temperature
+            "generationConfig": {
+                "maxOutputTokens": max_tokens,
+                "temperature": temperature
+            }
         }
-        resp = requests.post(
-            f"{SKYWORK_LLM_BASE}/v1/chat/completions",
-            headers=headers,
-            json=payload,
-            timeout=120
-        )
+        resp = requests.post(url, headers=headers, json=payload, timeout=120)
         if resp.status_code != 200:
-            return f"FAILED - DO NOT RETRY: 상태코드 {resp.status_code} / 주소: {SKYWORK_LLM_BASE}/v1/chat/completions / 키앞5자: {SKYWORK_API_KEY[:5]}... / 응답: {resp.text[:200]}"
+            return f"FAILED - DO NOT RETRY: 상태코드 {resp.status_code} / 응답: {resp.text[:300]}"
         data = resp.json()
         if "error" in data:
             return f"FAILED - DO NOT RETRY: {data['error'].get('message', str(data['error']))}"
-        if "choices" not in data:
-            return f"FAILED - DO NOT RETRY: 응답에 choices 없음. 응답: {str(data)[:300]}"
-        if len(data["choices"]) == 0:
-            return "FAILED - DO NOT RETRY: choices 배열이 비어있습니다."
-        return data["choices"][0]["message"]["content"]
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return "FAILED - DO NOT RETRY: 응답에 candidates 없음."
+        content = candidates[0].get("content", {})
+        parts = content.get("parts", [])
+        if not parts:
+            return "FAILED - DO NOT RETRY: 응답 parts 비어있음."
+        return parts[0].get("text", "")
     except requests.exceptions.Timeout:
         return "FAILED - DO NOT RETRY: 요청 시간 초과 (120초)"
     except requests.exceptions.ConnectionError:
         return "FAILED - DO NOT RETRY: 서버 연결 실패"
     except Exception as e:
         return f"FAILED - DO NOT RETRY: {str(e)}"
+
 
         # base64인 경우
         if img_url.startswith("data:") or (len(img_url) > 500 and not img_url.startswith("http")):
@@ -331,10 +341,11 @@ with st.sidebar:
     st.header("공통 설정")
 
     st.subheader("API 연결 상태")
-    if SKYWORK_API_KEY:
-        st.success("Skywork API: 연결됨")
-    else:
-        st.error("Skywork API: 키 없음")
+    if GEMINI_API_KEY:
+    st.success("Gemini API: 연결됨")
+else:
+    st.error("Gemini API: 키 없음")
+
 
     if KIE_API_KEY:
         st.success("KIE API: 연결됨")

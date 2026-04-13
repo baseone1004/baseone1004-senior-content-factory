@@ -133,7 +133,6 @@ def extract_section(text, section_name):
     return ""
 
 def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
-    """Skywork APIFree LLM 호출"""
     if not SKYWORK_API_KEY:
         return "FAILED - DO NOT RETRY: Skywork API 키가 설정되지 않았습니다."
     try:
@@ -156,9 +155,8 @@ def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
             json=payload,
             timeout=120
         )
-                if resp.status_code != 200:
+        if resp.status_code != 200:
             return f"FAILED - DO NOT RETRY: 상태코드 {resp.status_code} / 주소: {SKYWORK_LLM_BASE}/v1/chat/completions / 키앞5자: {SKYWORK_API_KEY[:5]}... / 응답: {resp.text[:200]}"
-
         data = resp.json()
         if "error" in data:
             return f"FAILED - DO NOT RETRY: {data['error'].get('message', str(data['error']))}"
@@ -173,71 +171,6 @@ def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
         return "FAILED - DO NOT RETRY: 서버 연결 실패"
     except Exception as e:
         return f"FAILED - DO NOT RETRY: {str(e)}"
-
-def generate_image_skywork(prompt, filename, ref_image_path=None):
-    """Skywork APIFree 이미지 생성"""
-    if not SKYWORK_API_KEY:
-        return None
-    try:
-        os.makedirs("generated_images", exist_ok=True)
-        headers = {
-            "Authorization": f"Bearer {SKYWORK_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "stable-diffusion-xl",
-            "prompt": prompt,
-            "width": 1280 if "16:9" in prompt or "horizontal" in prompt else 720,
-            "height": 720 if "16:9" in prompt or "horizontal" in prompt else 1280,
-            "num_images": 1
-        }
-        if ref_image_path and os.path.exists(ref_image_path):
-            with open(ref_image_path, "rb") as f:
-                b64 = base64.b64encode(f.read()).decode()
-            payload["reference_image"] = f"data:image/png;base64,{b64}"
-
-        resp = requests.post(
-            SKYWORK_IMG_ENDPOINT,
-            headers=headers,
-            json=payload,
-            timeout=120
-        )
-        if resp.status_code != 200:
-            st.warning(f"이미지 생성 실패: {resp.status_code}")
-            return None
-
-        data = resp.json()
-
-        # 응답 형태에 따라 처리
-        img_url = None
-        if "data" in data and isinstance(data["data"], list) and len(data["data"]) > 0:
-            item = data["data"][0]
-            if isinstance(item, dict):
-                img_url = item.get("url") or item.get("image_url") or item.get("b64_json")
-            elif isinstance(item, str):
-                img_url = item
-        elif "url" in data:
-            img_url = data["url"]
-        elif "image_url" in data:
-            img_url = data["image_url"]
-        elif "request_id" in data:
-            # 비동기 방식: 폴링
-            rid = data["request_id"]
-            for _ in range(30):
-                time.sleep(2)
-                check = requests.get(
-                    f"{SKYWORK_LLM_BASE}/v1/image/status/{rid}",
-                    headers=headers, timeout=30
-                )
-                if check.status_code == 200:
-                    cd = check.json()
-                    if cd.get("status") == "completed":
-                        if "data" in cd and len(cd["data"]) > 0:
-                            img_url = cd["data"][0].get("url","")
-                        break
-
-        if not img_url:
-            return None
 
         # base64인 경우
         if img_url.startswith("data:") or (len(img_url) > 500 and not img_url.startswith("http")):

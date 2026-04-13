@@ -114,6 +114,10 @@ defaults = {
     "reference_image": None,
     "reference_image_path": "",
     "content_type": "쇼츠",
+    "topic_recommendations": "",
+    "news_data": "",
+    "selected_topic_data": {},
+
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -275,11 +279,11 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
 ])
 
 # ═══════════════════════════════════════════
-# 탭1: 주제 추천 (Gemini API)
+# 탭1: 주제 추천 (Gemini API + 실시간 뉴스 검색)
 # ═══════════════════════════════════════════
 with tab1:
     st.header("주제 추천")
-    st.info("카테고리를 선택하고 버튼을 누르면 Gemini가 쇼츠/롱폼에 적합한 주제 5개를 추천합니다.")
+    st.info("카테고리를 선택하면 최신 뉴스를 검색하고, Gemini가 떡상 확률과 함께 10개 주제를 추천합니다.")
     
     categories = [
         "경제/사회", "부동산", "창업/자영업", "노동/일자리",
@@ -299,58 +303,203 @@ with tab1:
         if not GEMINI_API_KEY:
             st.error("Gemini API 키가 설정되지 않았습니다. Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
         else:
-            with st.spinner("Gemini에서 주제를 추천받고 있습니다..."):
+            # 1단계: 최신 뉴스 검색 (Gemini의 grounding 기능 활용)
+            with st.spinner("최신 뉴스를 검색하고 있습니다..."):
+                
+                news_search_prompt = f"""당신은 한국 뉴스 전문 리서처입니다.
+
+"{selected_cat}" 카테고리에서 지금 한국에서 가장 화제가 되고 있는 최신 뉴스와 이슈를 15개 찾아주세요.
+
+반드시 포함할 소스:
+- 구글 뉴스 한국
+- 네이버 뉴스 
+- 연합뉴스
+- 한국경제/매일경제/조선일보 경제면
+- 유튜브 인기 경제 채널
+
+각 뉴스마다 아래 형식으로 작성하세요:
+뉴스1: (제목) / 출처: (언론사) / 핵심: (한 줄 요약)
+
+가능한 한 최근 1주일 이내 뉴스를 우선하세요.
+2026년 4월 현재 한국의 주요 이슈를 반영하세요.
+중동 전쟁, 유가, 물가, 추경, 자영업, 부동산, AI, 고용 등 현재 핫한 키워드를 중심으로 하세요."""
+
+                news_result = safe_generate(news_search_prompt)
+            
+            # 2단계: 뉴스 기반 주제 추천
+            with st.spinner("뉴스를 분석하고 주제를 추천 중입니다..."):
+                
                 content_label = st.session_state.get("content_type", "쇼츠")
-                prompt = f"""당신은 유튜브 {content_label} 콘텐츠 기획 전문가입니다.
+                
+                topic_prompt = f"""당신은 유튜브 {content_label} 백만 조회수 전문 기획자입니다.
 
-카테고리: {selected_cat}
+아래는 "{selected_cat}" 카테고리의 최신 뉴스입니다:
 
-이 카테고리에서 유튜브 {content_label}로 만들면 조회수가 높을 만한 주제 5개를 추천해주세요.
+{news_result}
+
+위 뉴스를 바탕으로, 유튜브 {content_label}로 만들면 조회수가 폭발할 주제 10개를 추천하세요.
+
+반드시 아래 JSON 형식으로만 출력하세요. 다른 텍스트는 절대 쓰지 마세요:
+
+[
+  {{
+    "번호": 1,
+    "주제": "20자 이내 자극적 제목",
+    "출처뉴스": "참고한 뉴스 제목",
+    "떡상확률": 85,
+    "이유": "왜 이 주제가 떡상할지 한 줄 설명",
+    "추천태그": "태그1, 태그2, 태그3",
+    "난이도": "쉬움"
+  }},
+  ...
+]
 
 규칙:
-- 각 주제는 20자 이내로 짧고 임팩트 있게
-- 특수기호 사용 금지
-- 번호는 1. 2. 3. 4. 5. 형식으로
-- 시청자가 클릭하고 싶은 자극적이고 궁금증을 유발하는 제목
-- 각 주제 아래에 한 줄로 간단한 설명 추가
-- 현재 트렌드와 관련된 주제 우선
+1. 주제는 20자 이내, 시청자가 클릭 안 할 수 없는 자극적 제목
+2. 떡상확률은 50~95 사이 숫자 (현실적으로)
+3. 이유는 30자 이내
+4. 난이도는 "쉬움", "보통", "어려움" 중 택1
+5. 10개 주제는 서로 겹치지 않아야 함
+6. 최신 뉴스와 직접 연관된 주제 우선
+7. 추천태그는 3~5개
+8. 떡상확률 높은 순서로 정렬"""
 
-예시 형식:
-1. 주제 제목
-설명: 간단한 한 줄 설명
-
-5개만 출력하세요."""
-
-                result = safe_generate(prompt)
+                topic_result = safe_generate(topic_prompt, max_tokens=6000)
                 
-                if result.startswith("오류:"):
-                    st.error(result)
+                if topic_result.startswith("오류:"):
+                    st.error(topic_result)
                 else:
-                    st.session_state["topic_recommendations"] = result
+                    st.session_state["topic_recommendations"] = topic_result
+                    st.session_state["news_data"] = news_result
                     st.success("주제 추천 완료!")
     
+    # 결과 표시
     if st.session_state.get("topic_recommendations"):
-        st.subheader("추천 주제 목록")
-        rec_text = st.session_state["topic_recommendations"]
-        st.markdown(f"```\n{clean_special(rec_text)}\n```")
         
-        topic_input = st.text_input(
-            "위 추천 중 사용할 주제를 입력하거나, 직접 주제를 작성하세요",
-            value=st.session_state.get("selected_topic", ""),
-            key="topic_input"
-        )
-        if st.button("이 주제로 결정", key="btn_set_topic"):
-            if topic_input.strip():
-                st.session_state["selected_topic"] = topic_input.strip()
-                st.success(f"주제가 결정되었습니다: {topic_input.strip()}")
-            else:
-                st.warning("주제를 입력해주세요.")
+        # 뉴스 소스 표시
+        with st.expander("참고한 최신 뉴스 원문 보기"):
+            st.text(clean_special(st.session_state.get("news_data", "")))
+        
+        st.divider()
+        st.subheader("추천 주제 TOP 10")
+        
+        # JSON 파싱 시도
+        raw = st.session_state["topic_recommendations"]
+        # JSON 부분만 추출
+        json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+        
+        topics_parsed = None
+        if json_match:
+            try:
+                topics_parsed = json.loads(json_match.group())
+            except json.JSONDecodeError:
+                topics_parsed = None
+        
+        if topics_parsed and isinstance(topics_parsed, list):
+            # 카드형 UI로 표시
+            for item in topics_parsed:
+                num = item.get("번호", "")
+                title = item.get("주제", "")
+                source = item.get("출처뉴스", "")
+                prob = item.get("떡상확률", 0)
+                reason = item.get("이유", "")
+                tags = item.get("추천태그", "")
+                diff = item.get("난이도", "보통")
+                
+                # 떡상확률에 따른 색상
+                if prob >= 85:
+                    prob_color = "#FF4444"
+                    prob_emoji = "🔥"
+                    border_color = "#FF4444"
+                elif prob >= 70:
+                    prob_color = "#FF8800"
+                    prob_emoji = "⚡"
+                    border_color = "#FF8800"
+                else:
+                    prob_color = "#44AA44"
+                    prob_emoji = "💡"
+                    border_color = "#44AA44"
+                
+                # 난이도 색상
+                diff_colors = {"쉬움": "#44CC44", "보통": "#FFAA00", "어려움": "#FF4444"}
+                diff_color = diff_colors.get(diff, "#FFAA00")
+                
+                card_html = f"""
+                <div style="border:2px solid {border_color}; border-radius:12px; padding:16px; margin:8px 0; background:#1a1a2e;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                        <span style="font-size:20px; font-weight:bold; color:#FFFFFF;">{prob_emoji} {num}. {title}</span>
+                        <span style="font-size:24px; font-weight:bold; color:{prob_color};">떡상 {prob}%</span>
+                    </div>
+                    <div style="margin:6px 0;">
+                        <span style="background:#333; padding:3px 10px; border-radius:20px; font-size:12px; color:#AAA;">출처: {source}</span>
+                        <span style="background:{diff_color}22; padding:3px 10px; border-radius:20px; font-size:12px; color:{diff_color}; margin-left:6px;">난이도: {diff}</span>
+                    </div>
+                    <div style="color:#CCCCCC; font-size:14px; margin:8px 0;">{reason}</div>
+                    <div style="color:#888888; font-size:12px;">태그: {tags}</div>
+                </div>
+                """
+                st.markdown(card_html, unsafe_allow_html=True)
+            
+            st.divider()
+            
+            # 주제 선택
+            topic_options = [f"{item.get('번호', '')}. {item.get('주제', '')} (떡상 {item.get('떡상확률', 0)}%)" for item in topics_parsed]
+            selected_topic_idx = st.selectbox("제작할 주제를 선택하세요", topic_options, key="topic_select_dropdown")
+            
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("이 주제로 결정", key="btn_set_topic", use_container_width=True):
+                    # 번호 추출해서 해당 주제 저장
+                    idx = int(selected_topic_idx.split(".")[0]) - 1
+                    if 0 <= idx < len(topics_parsed):
+                        chosen = topics_parsed[idx]
+                        st.session_state["selected_topic"] = chosen.get("주제", "")
+                        st.session_state["selected_topic_data"] = chosen
+                        st.success(f"주제가 결정되었습니다: {chosen.get('주제', '')}")
+            
+            with col_btn2:
+                custom_topic = st.text_input("또는 직접 주제 입력", key="custom_topic_input")
+                if st.button("직접 입력한 주제로 결정", key="btn_custom_topic"):
+                    if custom_topic.strip():
+                        st.session_state["selected_topic"] = custom_topic.strip()
+                        st.success(f"주제가 결정되었습니다: {custom_topic.strip()}")
+        
+        else:
+            # JSON 파싱 실패 시 텍스트로 표시
+            st.markdown(f"```\n{clean_special(raw)}\n```")
+            topic_input = st.text_input(
+                "위 추천 중 사용할 주제를 입력하거나, 직접 주제를 작성하세요",
+                value=st.session_state.get("selected_topic", ""),
+                key="topic_input_fallback"
+            )
+            if st.button("이 주제로 결정", key="btn_set_topic_fallback"):
+                if topic_input.strip():
+                    st.session_state["selected_topic"] = topic_input.strip()
+                    st.success(f"주제가 결정되었습니다: {topic_input.strip()}")
     
+    # 선택된 주제 표시
     if st.session_state.get("selected_topic"):
         st.divider()
-        st.subheader("선택된 주제")
-        st.info(f"현재 주제: **{st.session_state['selected_topic']}**")
-        st.caption("이 주제로 Skywork에서 대본과 이미지를 생성한 후, 탭2와 탭3에서 입력해주세요.")
+        selected_data = st.session_state.get("selected_topic_data", {})
+        
+        topic_display_html = f"""
+        <div style="border:3px solid #4CAF50; border-radius:12px; padding:20px; background:#0a2e0a; text-align:center;">
+            <div style="font-size:14px; color:#88CC88;">현재 선택된 주제</div>
+            <div style="font-size:24px; font-weight:bold; color:#FFFFFF; margin:10px 0;">{st.session_state['selected_topic']}</div>
+        """
+        if selected_data:
+            topic_display_html += f"""
+            <div style="font-size:14px; color:#AAAAAA;">
+                떡상확률: <span style="color:#FF4444; font-weight:bold;">{selected_data.get('떡상확률', '')}%</span> | 
+                난이도: {selected_data.get('난이도', '')} | 
+                태그: {selected_data.get('추천태그', '')}
+            </div>
+            """
+        topic_display_html += """
+            <div style="font-size:13px; color:#888888; margin-top:10px;">이 주제로 Skywork에서 대본과 이미지를 생성한 후, 탭2와 탭3에서 입력해주세요.</div>
+        </div>
+        """
+        st.markdown(topic_display_html, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════
 # 탭2: 대본 입력 (Skywork에서 가져온 대본 붙여넣기)

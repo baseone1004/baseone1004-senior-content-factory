@@ -11,6 +11,7 @@ st.set_page_config(page_title="시니어 콘텐츠 팩토리", layout="wide")
 # ── 세션 스테이트 기본값 ──
 defaults = {
     "selected_topic": "",
+    "selected_category": "경제/사회",
     "topics_list": [],
     "recommended_keywords": [],
     "channel_category": "경제/사회",
@@ -18,6 +19,7 @@ defaults = {
     "longform_metadata": {},
     "shorts_data": [],
     "shorts_raw": "",
+    "shorts_list": [],
     "generated_images_longform": [],
     "generated_images_shorts": {},
     "reference_image": None,
@@ -34,6 +36,15 @@ defaults = {
     "video_effects_shorts": {},
     "video_results_longform": {},
     "video_results_shorts": {},
+    "long_structure": "",
+    "long_parts": {},
+    "long_gen_step": 0,
+    "long_title": "",
+    "long_tags": "",
+    "long_desc": "",
+    "long_script": "",
+    "long_sentences": [],
+    "long_video_link": "",
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -54,13 +65,7 @@ except Exception as e:
     st.sidebar.error(f"API 로드 실패: {e}")
 
 
-# ══════════════════════════════════════════════════════
-#  핵심 안전 함수들
-# ══════════════════════════════════════════════════════
-
 def safe_generate(prompt_text):
-    """api.generate() 결과를 안전하게 문자열로 변환.
-    skywork_handler.generate()는 (text, error) 튜플을 반환함."""
     if not api:
         return ""
     try:
@@ -68,8 +73,6 @@ def safe_generate(prompt_text):
     except Exception as e:
         st.error(f"AI 생성 실패: {e}")
         return ""
-
-    # ★ 핵심: 튜플 처리 (skywork_handler가 (text, error) 반환)
     if isinstance(raw, tuple):
         text_part = raw[0] if len(raw) > 0 else None
         error_part = raw[1] if len(raw) > 1 else None
@@ -79,8 +82,7 @@ def safe_generate(prompt_text):
             return ""
         if isinstance(text_part, str):
             return text_part
-        raw = text_part  # 아래에서 dict/list 등 추가 처리
-
+        raw = text_part
     if raw is None:
         return ""
     if isinstance(raw, str):
@@ -112,7 +114,6 @@ def safe_generate(prompt_text):
 
 
 def safe_generate_image(prompt, aspect_ratio="9:16"):
-    """api.generate_image()를 안전하게 호출. (url, error) 튜플 처리."""
     if not api:
         return None, "API 미연결"
     try:
@@ -134,11 +135,9 @@ def sync_topic():
 
 
 def safe_naver_search(keyword, count):
-    """네이버 검색. naver.search()도 (리스트, 에러) 튜플을 반환함."""
     if not api:
         return []
     raw_result = None
-    # 1차: search
     try:
         r = api.naver.search(keyword, display=count)
         if isinstance(r, tuple):
@@ -151,7 +150,6 @@ def safe_naver_search(keyword, count):
             raw_result = r
     except Exception:
         pass
-    # 2차: search_trending_topics
     if not raw_result:
         try:
             r = api.naver.search_trending_topics([keyword], count)
@@ -178,9 +176,23 @@ def safe_naver_search(keyword, count):
     return safe
 
 
-# ══════════════════════════════════════════════════════
-#  유틸리티 함수들
-# ══════════════════════════════════════════════════════
+def clean_special(text):
+    for ch in '#*_!?;~`"\'()[]{}<>|@$%^&+=':
+        text = text.replace(ch, "")
+    return text.strip()
+
+
+def clean_special_shorts(text):
+    text = text.replace("#", "").replace("*", "").replace("_", "")
+    text = text.replace("!", "").replace("?", "").replace(";", "")
+    text = text.replace("~", "").replace("`", "").replace('"', "")
+    text = text.replace("'", "").replace("(", "").replace(")", "")
+    text = text.replace("[", "").replace("]", "").replace("{", "").replace("}", "")
+    text = text.replace("<", "").replace(">", "").replace("|", "")
+    text = text.replace("@", "").replace("$", "").replace("%", "")
+    text = text.replace("^", "").replace("&", "").replace("+", "").replace("=", "")
+    return text.strip()
+
 
 def format_srt_time(seconds):
     h = int(seconds // 3600)
@@ -428,8 +440,6 @@ def build_sync_timeline_html(timestamps, dur=None):
         c = colors[i % len(colors)]
         rows += f'<div style="display:flex;align-items:center;margin:2px 0;height:28px;"><div style="width:30px;color:#888;font-size:10px;text-align:right;margin-right:6px;">{i+1}</div><div style="flex:1;position:relative;height:22px;background:#1a1a2e;border-radius:4px;overflow:hidden;"><div style="position:absolute;left:{sp}%;width:{wp}%;height:100%;background:{c};border-radius:3px;display:flex;align-items:center;padding:0 4px;overflow:hidden;"><span style="color:#fff;font-size:9px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{ts["text"][:20]}</span></div></div><div style="width:100px;color:#aaa;font-size:9px;margin-left:6px;font-family:monospace;">{ts["start"]:.1f}s~{ts["end"]:.1f}s</div></div>'
     return f'<div style="background:#0a0a1a;border:1px solid #333;border-radius:8px;padding:12px;margin:10px 0;"><div style="color:#ccc;font-size:12px;font-weight:bold;margin-bottom:8px;">싱크 타임라인 ({total:.1f}초 / {len(timestamps)}개)</div>{rows}</div>'
-
-
 # ══════════════════════════════════════════════════════
 #  사이드바
 # ══════════════════════════════════════════════════════
@@ -465,10 +475,6 @@ with st.sidebar:
         st.rerun()
 
 
-# ══════════════════════════════════════════════════════
-#  메인 탭
-# ══════════════════════════════════════════════════════
-
 tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "주제 추천", "롱폼 대본", "쇼츠 대본", "이미지 생성", "영상 변환", "음성 합성", "자막 설정", "최종 합치기"
 ])
@@ -478,15 +484,8 @@ tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
 with tab1:
     st.header("떡상 주제 추천")
 
-    # 채널 카테고리 (4개만)
-    categories = [
-        "경제/사회",
-        "시니어 창작 민담/설화",
-        "창작 미스터리/괴담",
-        "창작 역사",
-    ]
+    categories = ["경제/사회", "시니어 창작 민담/설화", "창작 미스터리/괴담", "창작 역사"]
 
-    # 카테고리별 자동 검색 키워드 (키워드 입력란 제거 → 자동 매핑)
     CATEGORY_SEARCH_MAP = {
         "경제/사회": ["경제 위기", "물가 상승", "고용 시장", "자영업 폐업", "부동산 시장", "금리"],
         "시니어 창작 민담/설화": ["한국 민담", "전래동화", "설화", "옛날이야기", "구전설화"],
@@ -497,6 +496,7 @@ with tab1:
     cat_col, cnt_col = st.columns([3, 1])
     with cat_col:
         selected_cat = st.selectbox("채널 카테고리", categories, index=0, key="channel_cat_select")
+        st.session_state.selected_category = selected_cat
     with cnt_col:
         news_count = st.number_input("뉴스 수", 3, 20, 10, key="news_count")
 
@@ -507,14 +507,12 @@ with tab1:
             st.error("API 미연결")
         else:
             with st.spinner("뉴스 수집 및 분석 중..."):
-                # 카테고리에 매핑된 키워드로 자동 검색
                 search_keywords = CATEGORY_SEARCH_MAP.get(selected_cat, [selected_cat])
                 all_news = []
                 for kw in search_keywords:
                     results = safe_naver_search(kw, count=news_count)
                     all_news.extend(results)
 
-                # 중복 제거 및 제한
                 seen_titles = set()
                 unique_news = []
                 for item in all_news:
@@ -534,7 +532,19 @@ with tab1:
                 with st.expander("수집된 뉴스 (디버그)"):
                     st.text(nt or "(없음)")
 
-                # 카테고리별 프롬프트 분기
+                # ── 제목 20자 이내 공통 규칙 ──
+                title_rule = """제목 작성 규칙:
+제목은 반드시 한글 공백 포함 20자 이내로 씁니다.
+모바일에서 잘리지 않도록 핵심 키워드를 앞에 배치합니다.
+특수기호 금지. 물음표 느낌표 금지.
+숫자는 아라비아 숫자로 씁니다.
+시청자가 바로 클릭하고 싶은 궁금증을 유발하는 제목으로 씁니다.
+뻔한 제목 금지. 구체적인 수치나 대상을 넣습니다."""
+
+                output_format = """반드시 정확히 10개를 아래 형식으로 출력해:
+1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
+(10번까지. 제목과 대안 모두 20자 이내.)"""
+
                 if selected_cat == "경제/사회":
                     prompt = f"""아래 최신 뉴스를 분석해서 시니어 유튜브 채널용 떡상 주제 10개를 추천해줘.
 카테고리: 경제/사회
@@ -542,52 +552,44 @@ with tab1:
 {nt or '(최신 뉴스 없음)'}
 
 반드시 사실 기반 뉴스에서 파생된 주제만 추천해. 창작 금지.
-반드시 정확히 10개를 아래 형식으로 출력해:
-1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
-2번|제목: ...|확률: ...|출처: ...|대안: ...|태그: ...
-(10번까지)"""
+{title_rule}
+{output_format}"""
 
                 elif selected_cat == "시니어 창작 민담/설화":
                     prompt = f"""당신은 시니어 유튜브 채널 기획자입니다.
 카테고리: 시니어 창작 민담/설화
-
-아래 뉴스에서 영감을 받아 한국 전래동화, 민담, 설화를 현대적으로 재해석한 시니어 맞춤 영상 주제 10개를 추천해줘.
 참고 뉴스:
 {nt or '(없음)'}
 
+한국 전래동화 민담 설화를 현대적으로 재해석한 시니어 맞춤 영상 주제 10개를 추천해줘.
 옛날이야기를 시니어가 손주에게 들려주는 느낌으로 기획해.
-반드시 정확히 10개를 아래 형식으로 출력해:
-1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
-(10번까지)"""
+{title_rule}
+{output_format}"""
 
                 elif selected_cat == "창작 미스터리/괴담":
                     prompt = f"""당신은 시니어 유튜브 채널 기획자입니다.
 카테고리: 창작 미스터리/괴담
-
-아래 뉴스에서 영감을 받아 미스터리, 괴담, 도시전설 주제의 시니어 맞춤 영상 주제 10개를 추천해줘.
 참고 뉴스:
 {nt or '(없음)'}
 
-무섭지만 흥미로운 이야기, 미해결 사건 분석, 도시전설 검증 등의 방향으로 기획해.
-반드시 정확히 10개를 아래 형식으로 출력해:
-1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
-(10번까지)"""
+미스터리 괴담 도시전설 주제의 시니어 맞춤 영상 주제 10개를 추천해줘.
+무섭지만 흥미로운 이야기 미해결 사건 분석 도시전설 검증 등의 방향으로 기획해.
+{title_rule}
+{output_format}"""
 
                 elif selected_cat == "창작 역사":
                     prompt = f"""당신은 시니어 유튜브 채널 기획자입니다.
 카테고리: 창작 역사
-
-아래 뉴스에서 영감을 받아 한국 역사를 재미있게 풀어내는 시니어 맞춤 영상 주제 10개를 추천해줘.
 참고 뉴스:
 {nt or '(없음)'}
 
-역사 인물, 사건, 시대를 흥미진진하게 이야기하는 방향으로 기획해.
-반드시 정확히 10개를 아래 형식으로 출력해:
-1번|제목: 제목내용|확률: 높음/중간/낮음|출처: 출처내용|대안: 대안제목|태그: 태그1,태그2,태그3
-(10번까지)"""
+한국 역사를 재미있게 풀어내는 시니어 맞춤 영상 주제 10개를 추천해줘.
+역사 인물 사건 시대를 흥미진진하게 이야기하는 방향으로 기획해.
+{title_rule}
+{output_format}"""
 
                 else:
-                    prompt = f"'{selected_cat}' 카테고리로 시니어 유튜브 주제 10개 추천해줘."
+                    prompt = f"'{selected_cat}' 카테고리로 시니어 유튜브 주제 10개 추천해줘. 제목 20자 이내."
 
                 raw_str = safe_generate(prompt)
 
@@ -605,8 +607,11 @@ with tab1:
                             def safe_group(pat, ln):
                                 mm = re.search(pat, ln)
                                 return mm.group(1).strip() if mm else ""
+                            title = clean_special(m.group(1).strip().strip("*"))
+                            if len(title) > 22:
+                                title = title[:20]
                             topics.append({
-                                "title": m.group(1).strip().strip("*"),
+                                "title": title,
                                 "probability": safe_group(r'확률:\s*(.+?)(?:\||$)', line),
                                 "source": safe_group(r'출처:\s*(.+?)(?:\||$)', line),
                                 "alternative": safe_group(r'대안:\s*(.+?)(?:\||$)', line),
@@ -615,8 +620,11 @@ with tab1:
                         else:
                             m2 = re.match(r'^\d+[\.\)]\s*(.+)', line)
                             if m2:
-                                topics.append({"title": m2.group(1).strip(), "probability": "", "source": "", "alternative": "", "tags": ""})
-                    st.session_state.topics_list = topics
+                                title = clean_special(m2.group(1).strip())
+                                if len(title) > 22:
+                                    title = title[:20]
+                                topics.append({"title": title, "probability": "", "source": "", "alternative": "", "tags": ""})
+                    st.session_state.topics_list = topics[:10]
 
                 if not topics:
                     st.warning("주제 파싱 실패. AI 응답 탭을 확인하세요.")
@@ -626,7 +634,10 @@ with tab1:
             with st.container(border=True):
                 c1, c2 = st.columns([4, 1])
                 with c1:
-                    st.markdown(f"**{i+1}. {t['title']}**")
+                    title_display = t['title']
+                    char_count = len(title_display)
+                    color = "green" if char_count <= 20 else "red"
+                    st.markdown(f"**{i+1}. {title_display}** :{color}[({char_count}자)]")
                     st.caption(f"확률:{t['probability']} | 출처:{t['source']} | 대안:{t['alternative']} | 태그:{t['tags']}")
                 with c2:
                     if st.button("선택", key=f"pick_{i}", use_container_width=True):
@@ -643,7 +654,6 @@ with tab1:
             st.rerun()
 
 
-
 # ═══ 탭2: 롱폼 대본 ═══
 with tab2:
     st.subheader("롱폼 대본 생성 (30~40분 분량)")
@@ -652,11 +662,6 @@ with tab2:
         st.info("탭1에서 주제를 먼저 선택하세요.")
     else:
         st.success(f"선택된 주제: {st.session_state.selected_topic}")
-
-        def clean_special(text):
-            for ch in '#*_!?;~`"\'()[]{}<>|@$%^&+=':
-                text = text.replace(ch, "")
-            return text.strip()
 
         def build_structure_prompt(topic, category):
             return f"""당신은 유튜브 롱폼 삼십 분에서 사십 분 분량 전문 대본 작가입니다.
@@ -748,28 +753,13 @@ with tab2:
 
 출력 형식:
 ===제목===
-제목을 한 줄로 씁니다. 오십 자 이내. 특수기호 금지.
+제목을 한 줄로 씁니다. 한글 공백 포함 20자 이내. 특수기호 금지. 모바일에서 잘리지 않도록 핵심 키워드를 앞에 넣습니다.
 
 ===태그===
 쉼표로 구분. 십오 개에서 이십 개. 특수기호 금지. 해시태그 기호 금지.
 
 ===설명===
 약 삼백 자. 특수기호 금지. 해시태그 기호 금지. 영상의 핵심 내용을 요약하고 시청자의 궁금증을 자극하는 문장으로 마무리합니다."""
-
-        if "long_structure" not in st.session_state:
-            st.session_state.long_structure = ""
-        if "long_parts" not in st.session_state:
-            st.session_state.long_parts = {}
-        if "long_gen_step" not in st.session_state:
-            st.session_state.long_gen_step = 0
-        if "long_title" not in st.session_state:
-            st.session_state.long_title = ""
-        if "long_tags" not in st.session_state:
-            st.session_state.long_tags = ""
-        if "long_desc" not in st.session_state:
-            st.session_state.long_desc = ""
-        if "long_script" not in st.session_state:
-            st.session_state.long_script = ""
 
         topic = st.session_state.selected_topic
         category = st.session_state.get("selected_category", "경제/사회")
@@ -793,15 +783,8 @@ with tab2:
                     prev_last = ""
 
                     for pi, pname in enumerate(part_names):
-                        progress.progress(
-                            10 + int((pi / 8) * 80),
-                            text=f"파트{pname} 생성 중... ({pi+1}/8)"
-                        )
-                        part_prompt = build_part_prompt(
-                            topic, category,
-                            st.session_state.long_structure,
-                            pname, prev_last
-                        )
+                        progress.progress(10 + int((pi / 8) * 80), text=f"파트{pname} 생성 중... ({pi+1}/8)")
+                        part_prompt = build_part_prompt(topic, category, st.session_state.long_structure, pname, prev_last)
                         part_raw = safe_generate(part_prompt)
                         if part_raw:
                             marker = f"===파트{pname}==="
@@ -811,7 +794,6 @@ with tab2:
                                 part_text = part_raw.strip()
                             part_text = clean_special(part_text)
                             st.session_state.long_parts[pname] = part_text
-
                             sentences = [s.strip() for s in part_text.split(".") if s.strip()]
                             if len(sentences) >= 3:
                                 prev_last = ". ".join(sentences[-3:]) + "."
@@ -820,7 +802,6 @@ with tab2:
                         else:
                             st.warning(f"파트{pname} 생성 실패. 건너뜁니다.")
                             prev_last = ""
-
                         time.sleep(1)
 
                     progress.progress(90, text="제목 태그 설명 생성 중...")
@@ -842,8 +823,10 @@ with tab2:
                                 return s.strip()
                             except:
                                 return ""
-
-                        st.session_state.long_title = clean_special(extract_section(meta_raw, "===제목===", "===태그==="))
+                        title_raw = clean_special(extract_section(meta_raw, "===제목===", "===태그==="))
+                        if len(title_raw) > 22:
+                            title_raw = title_raw[:20]
+                        st.session_state.long_title = title_raw
                         st.session_state.long_tags = clean_special(extract_section(meta_raw, "===태그===", "===설명==="))
                         st.session_state.long_desc = clean_special(extract_section(meta_raw, "===설명==="))
 
@@ -855,20 +838,17 @@ with tab2:
         with col_b:
             if st.session_state.long_parts:
                 if st.button("대본 초기화", key="reset_long"):
-                    st.session_state.long_structure = ""
-                    st.session_state.long_parts = {}
-                    st.session_state.long_gen_step = 0
-                    st.session_state.long_title = ""
-                    st.session_state.long_tags = ""
-                    st.session_state.long_desc = ""
-                    st.session_state.long_script = ""
-                    st.session_state.long_sentences = []
+                    for k in ["long_structure","long_parts","long_gen_step","long_title","long_tags","long_desc","long_script","long_sentences"]:
+                        st.session_state[k] = defaults.get(k, "")
                     st.rerun()
 
         if st.session_state.get("long_title"):
             st.markdown("---")
             st.markdown("**제목**")
+            title_len = len(st.session_state.long_title)
+            tc = "green" if title_len <= 20 else "red"
             st.code(st.session_state.long_title, language=None)
+            st.caption(f":{tc}[{title_len}자]")
 
             st.markdown("**태그**")
             st.code(st.session_state.long_tags, language=None)
@@ -879,13 +859,11 @@ with tab2:
         if st.session_state.long_parts:
             st.markdown("---")
             st.markdown("**전체 대본**")
-
             part_names = ["일", "이", "삼", "사", "오", "육", "칠", "팔"]
             full_display = ""
             for pname in part_names:
                 if pname in st.session_state.long_parts:
                     full_display += st.session_state.long_parts[pname] + "\n\n"
-
             st.code(full_display.strip(), language=None)
 
             total_sentences = [s.strip() for s in st.session_state.get("long_script", "").split(".") if s.strip()]
@@ -904,15 +882,10 @@ with tab2:
 
             st.markdown("---")
             st.markdown("**개별 파트 재생성**")
-            regen_part = st.selectbox(
-                "재생성할 파트 선택",
-                ["선택하세요"] + [f"파트{p}" for p in part_names if p in st.session_state.long_parts],
-                key="regen_select"
-            )
+            regen_part = st.selectbox("재생성할 파트 선택", ["선택하세요"] + [f"파트{p}" for p in part_names if p in st.session_state.long_parts], key="regen_select")
             if regen_part != "선택하세요" and st.button("선택한 파트 재생성", key="regen_part_btn"):
                 pname = regen_part.replace("파트", "")
                 pname_idx = part_names.index(pname)
-
                 prev_last = ""
                 if pname_idx > 0:
                     prev_pname = part_names[pname_idx - 1]
@@ -920,13 +893,8 @@ with tab2:
                         prev_sents = [s.strip() for s in st.session_state.long_parts[prev_pname].split(".") if s.strip()]
                         if len(prev_sents) >= 3:
                             prev_last = ". ".join(prev_sents[-3:]) + "."
-
                 with st.spinner(f"파트{pname} 재생성 중..."):
-                    part_prompt = build_part_prompt(
-                        topic, category,
-                        st.session_state.long_structure,
-                        pname, prev_last
-                    )
+                    part_prompt = build_part_prompt(topic, category, st.session_state.long_structure, pname, prev_last)
                     part_raw = safe_generate(part_prompt)
                     if part_raw:
                         marker = f"===파트{pname}==="
@@ -936,7 +904,6 @@ with tab2:
                             part_text = part_raw.strip()
                         part_text = clean_special(part_text)
                         st.session_state.long_parts[pname] = part_text
-
                         full_script = ""
                         for p in part_names:
                             if p in st.session_state.long_parts:
@@ -944,6 +911,7 @@ with tab2:
                         st.session_state.long_script = full_script.strip()
                         st.session_state.long_sentences = [s.strip() for s in full_script.split(".") if s.strip()]
                         st.rerun()
+
 
 # ═══ 탭3: 쇼츠 대본 ═══
 with tab3:
@@ -956,12 +924,7 @@ with tab3:
 
         st.markdown("---")
         st.markdown("**롱폼 영상 링크 설정**")
-        long_link = st.text_input(
-            "롱폼 유튜브 링크를 입력하면 고정댓글에 자동 삽입됩니다",
-            value=st.session_state.get("long_video_link", ""),
-            key="long_link_input",
-            placeholder="https://youtu.be/xxxxxxxxx"
-        )
+        long_link = st.text_input("롱폼 유튜브 링크를 입력하면 고정댓글에 자동 삽입됩니다", value=st.session_state.get("long_video_link", ""), key="long_link_input", placeholder="https://youtu.be/xxxxxxxxx")
         st.session_state.long_video_link = long_link
 
         if st.button("쇼츠 3편 세트 생성", key="gen_shorts"):
@@ -976,21 +939,12 @@ with tab3:
 세트 기획 규칙:
 하나의 대주제에서 세 개의 소주제를 도출합니다.
 세 개의 소주제는 반드시 서로 중복되지 않아야 합니다.
-아래 여덟 가지 관점에서 골고루 뽑습니다.
-관점 하나. 몰락 원인 분석.
-관점 둘. 전성기 실태.
-관점 셋. 내부 폭로.
-관점 넷. 비교 분석.
-관점 다섯. 수익 구조.
-관점 여섯. 피해자 시점.
-관점 일곱. 현재 상황.
-관점 여덟. 미래 전망.
-세 편을 채울 때 위 여덟 관점에서 가장 흥미로운 세 가지를 고릅니다.
+아래 여덟 가지 관점에서 가장 흥미로운 세 가지를 고릅니다.
+관점 하나. 몰락 원인 분석. 관점 둘. 전성기 실태. 관점 셋. 내부 폭로. 관점 넷. 비교 분석. 관점 다섯. 수익 구조. 관점 여섯. 피해자 시점. 관점 일곱. 현재 상황. 관점 여덟. 미래 전망.
 
 백만 조회수 대본 핵심 원칙:
 시청자가 스와이프하지 못하고 끝까지 보게 만드는 것이 목적입니다.
 인사하지 않습니다. 자기소개하지 않습니다. 구독 좋아요 언급하지 않습니다.
-
 일초 법칙. 첫 문장이 곧 생사입니다. 현장 투척형 또는 통념 파괴형 또는 공감 소환형 또는 충격 수치형 또는 질문 관통형으로 시작합니다.
 삼초 궁금증 폭탄. 처음 세 문장 안에 열린 고리를 겁니다.
 근데의 힘. 사용 접속사는 근데 그래서 결국 알고 보니 문제는. 피해야 하는 접속사는 그리고 또한 뿐만 아니라 한편.
@@ -1005,10 +959,8 @@ with tab3:
 대본 작성 규칙:
 각 편당 최소 팔 문장 최대 십오 문장.
 마침표만 사용합니다. 물음표 느낌표 특수기호 금지.
-모든 영어와 외래어는 한글 순화어로 교체합니다.
-모든 숫자는 한글로 표기합니다.
-구어체를 사용합니다.
-대본 안에 역할 표시 금지. 내레이션 진행자 등의 단어 금지.
+모든 영어와 외래어는 한글 순화어로 교체합니다. 모든 숫자는 한글로 표기합니다.
+구어체를 사용합니다. 대본 안에 역할 표시 금지. 내레이션 진행자 등의 단어 금지.
 금지어: 안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다, 다음에 또, 좋은 영상, 찾아오겠습니다.
 
 이미지 프롬프트 규칙:
@@ -1022,31 +974,21 @@ with tab3:
 유형 나. 실제 인물 장면. 주인공 없음. 문장의 주어가 실제 유명인일 때.
 유형 다. 주인공 시점 장면. 주인공 등장. 나레이션 시점 리액션 질문 의문 감상 해석 시청자에게 말을 거는 장면.
 
-주인공 복장 규칙:
-주인공은 상황에 맞는 복장을 입습니다. 같은 맥락이면 복장 유지. 한 편 안에서 복장 변경은 최대 한 번.
-
-한글 간판 규칙:
-장면 내용과 연관된 한글 간판을 자연스럽게 배치합니다. 내용과 무관한 간판은 넣지 않습니다.
-
-감정 표현:
-충격은 wide eyes dropped jaw sweat drops.
-분노는 cross mark on forehead red aura fire effect.
-슬픔은 tears flowing blue aura rain clouds.
-두려움은 shaking blue pale face ghost effect.
+주인공 복장 규칙: 주인공은 상황에 맞는 복장. 같은 맥락이면 복장 유지. 한 편 안에서 복장 변경은 최대 한 번.
+한글 간판 규칙: 장면 내용과 연관된 한글 간판을 자연스럽게 배치. 내용과 무관한 간판은 넣지 않습니다.
+감정 표현: 충격은 wide eyes dropped jaw sweat drops. 분노는 cross mark on forehead red aura fire effect. 슬픔은 tears flowing blue aura rain clouds. 두려움은 shaking blue pale face ghost effect.
 
 고정댓글 작성 규칙:
 각 편마다 고정댓글을 하나씩 작성합니다.
 고정댓글은 해당 쇼츠의 핵심 내용을 두세 줄로 요약하고 궁금증을 자극하는 문장으로 끝냅니다.
-마지막에 롱폼 영상 유도 문장을 넣습니다.
-롱폼 유도 문장 형식: 더 자세한 이야기가 궁금하다면 여기서 확인하세요 LONGFORM_LINK
-LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에 실제 링크로 교체합니다.
-특수기호 금지. 이모지 금지. 해시태그 금지.
+마지막에 롱폼 유도 문장: 더 자세한 이야기가 궁금하다면 여기서 확인하세요 LONGFORM_LINK
+LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 특수기호 금지. 이모지 금지. 해시태그 금지.
 
 출력 형식을 반드시 정확히 따르세요:
 
 =001=
 
-제목: (오십 자 이내. 숫자는 아라비아 숫자)
+제목: (한글 20자 이내. 숫자는 아라비아 숫자. 모바일에서 잘리지 않도록 핵심을 앞에 배치)
 
 상단제목 첫째 줄: (십오 자 이내)
 상단제목 둘째 줄: (십오 자 이내)
@@ -1065,10 +1007,6 @@ LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에
 대사: (첫 번째 문장)
 프롬프트: SD 2D anime style, (장면 묘사), (접미어 규칙에 따라 마무리)
 
-=장면002=
-대사: (두 번째 문장)
-프롬프트: SD 2D anime style, (장면 묘사), (접미어 규칙에 따라 마무리)
-
 (대사 문장 수만큼 장면 반복)
 
 =002=
@@ -1081,28 +1019,14 @@ LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에
 
             with st.spinner("쇼츠 3편 세트 생성 중..."):
                 raw = safe_generate(shorts_prompt)
-
             if raw:
                 st.session_state.shorts_raw = raw
 
         if st.session_state.get("shorts_raw"):
             raw = st.session_state.shorts_raw
 
-            import re as _re
-
-            def clean_special_shorts(text):
-                text = text.replace("#", "").replace("*", "").replace("_", "")
-                text = text.replace("!", "").replace("?", "").replace(";", "")
-                text = text.replace("~", "").replace("`", "").replace('"', "")
-                text = text.replace("'", "").replace("(", "").replace(")", "")
-                text = text.replace("[", "").replace("]", "").replace("{", "").replace("}", "")
-                text = text.replace("<", "").replace(">", "").replace("|", "")
-                text = text.replace("@", "").replace("$", "").replace("%", "")
-                text = text.replace("^", "").replace("&", "").replace("+", "").replace("=", "")
-                return text.strip()
-
             shorts_list = []
-            parts = _re.split(r'=00(\d)=', raw)
+            parts = re.split(r'=00(\d)=', raw)
 
             i = 1
             while i < len(parts) - 1:
@@ -1113,16 +1037,18 @@ LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에
                 def get_field(content, field_name, next_fields):
                     for nf in next_fields:
                         pattern = f"{field_name}[:\\s]*(.*?)(?={nf})"
-                        m = _re.search(pattern, content, _re.DOTALL)
+                        m = re.search(pattern, content, re.DOTALL)
                         if m:
                             return m.group(1).strip()
                     pattern = f"{field_name}[:\\s]*(.*)"
-                    m = _re.search(pattern, content, _re.DOTALL)
+                    m = re.search(pattern, content, re.DOTALL)
                     if m:
                         return m.group(1).strip()
                     return ""
 
                 title = clean_special_shorts(get_field(ep_content, "제목", ["상단제목", "설명글", "태그", "고정댓글", "순수 대본"]))
+                if len(title) > 22:
+                    title = title[:20]
                 top1 = clean_special_shorts(get_field(ep_content, "상단제목 첫째 줄", ["상단제목 둘째 줄", "설명글", "태그"]))
                 top2 = clean_special_shorts(get_field(ep_content, "상단제목 둘째 줄", ["설명글", "태그", "고정댓글", "순수 대본"]))
                 desc = clean_special_shorts(get_field(ep_content, "설명글", ["태그", "고정댓글", "순수 대본"]))
@@ -1132,32 +1058,23 @@ LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에
                 pinned = clean_special_shorts(pinned_raw)
                 actual_link = st.session_state.get("long_video_link", "")
                 if actual_link:
-                    pinned = pinned.replace("LONGFORM_LINK", actual_link)
-                    pinned = pinned.replace("LONGFORMLINK", actual_link)
+                    pinned = pinned.replace("LONGFORM_LINK", actual_link).replace("LONGFORMLINK", actual_link)
                 else:
-                    pinned = pinned.replace("LONGFORM_LINK", "(롱폼 링크를 위에서 입력하세요)")
-                    pinned = pinned.replace("LONGFORMLINK", "(롱폼 링크를 위에서 입력하세요)")
+                    pinned = pinned.replace("LONGFORM_LINK", "(롱폼 링크를 위에서 입력하세요)").replace("LONGFORMLINK", "(롱폼 링크를 위에서 입력하세요)")
 
-                script_match = _re.search(r'순수 대본[:\s]*(.*?)(?==장면)', ep_content, _re.DOTALL)
+                script_match = re.search(r'순수 대본[:\s]*(.*?)(?==장면)', ep_content, re.DOTALL)
                 script = clean_special_shorts(script_match.group(1)) if script_match else ""
 
                 scenes = []
-                scene_blocks = _re.findall(r'=장면\d+=\s*대사[:\s]*(.*?)프롬프트[:\s]*(.*?)(?==장면|\Z)', ep_content, _re.DOTALL)
+                scene_blocks = re.findall(r'=장면\d+=\s*대사[:\s]*(.*?)프롬프트[:\s]*(.*?)(?==장면|\Z)', ep_content, re.DOTALL)
                 for sb in scene_blocks:
                     line_text = clean_special_shorts(sb[0])
                     prompt_text = sb[1].strip()
                     scenes.append({"대사": line_text, "프롬프트": prompt_text})
 
                 shorts_list.append({
-                    "번호": ep_num,
-                    "제목": title,
-                    "상단1": top1,
-                    "상단2": top2,
-                    "설명글": desc,
-                    "태그": tags,
-                    "고정댓글": pinned,
-                    "대본": script,
-                    "장면": scenes
+                    "번호": ep_num, "제목": title, "상단1": top1, "상단2": top2,
+                    "설명글": desc, "태그": tags, "고정댓글": pinned, "대본": script, "장면": scenes
                 })
 
             st.session_state.shorts_list = shorts_list
@@ -1166,7 +1083,9 @@ LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에
                 st.markdown("---")
                 st.markdown(f"### 쇼츠 {ep['번호']}편")
 
-                st.markdown("**제목**")
+                title_len = len(ep["제목"])
+                tc = "green" if title_len <= 20 else "red"
+                st.markdown(f"**제목** :{tc}[({title_len}자)]")
                 st.code(ep["제목"], language=None)
 
                 st.markdown("**상단제목**")
@@ -1179,11 +1098,7 @@ LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에
                 st.code(ep["태그"], language=None)
 
                 st.markdown("**고정댓글**")
-                pinned_display = ep["고정댓글"]
-                current_link = st.session_state.get("long_video_link", "")
-                if current_link and current_link != long_link:
-                    pinned_display = pinned_display.replace(current_link, long_link) if current_link else pinned_display
-                st.code(pinned_display, language=None)
+                st.code(ep["고정댓글"], language=None)
 
                 st.markdown("**대본**")
                 st.code(ep["대본"], language=None)
@@ -1203,33 +1118,26 @@ LONGFORM_LINK 자리에는 정확히 LONGFORM_LINK라고 적습니다. 나중에
 
             st.markdown("---")
             st.markdown("**롱폼 링크 업데이트**")
-            new_link = st.text_input(
-                "롱폼 업로드 후 링크가 바뀌었다면 여기에 다시 입력하세요",
-                value=st.session_state.get("long_video_link", ""),
-                key="long_link_update"
-            )
+            new_link = st.text_input("롱폼 업로드 후 링크가 바뀌었다면 여기에 다시 입력하세요", value=st.session_state.get("long_video_link", ""), key="long_link_update")
             if new_link != st.session_state.get("long_video_link", ""):
                 st.session_state.long_video_link = new_link
                 for ep in st.session_state.shorts_list:
                     pinned = ep.get("고정댓글", "")
-                    pinned = _re.sub(r'https?://\S+', new_link, pinned)
+                    pinned = re.sub(r'https?://\S+', new_link, pinned)
                     if "롱폼 링크를 위에서 입력하세요" in pinned:
                         pinned = pinned.replace("(롱폼 링크를 위에서 입력하세요)", new_link)
                     ep["고정댓글"] = pinned
                 st.rerun()
-
-
-
-# ═══ 탭4: 이미지 생성 (Skywork) ═══
+# ═══ 탭4: 이미지 생성 ═══
 with tab4:
     st.header("이미지 생성 (Skywork AI)")
     img_tab_l, img_tab_s = st.tabs(["롱폼 (16:9)", "쇼츠 (9:16)"])
 
     with img_tab_l:
         st.subheader("롱폼 이미지")
-        if st.session_state.longform_metadata and st.session_state.longform_metadata.get("body"):
-            body = st.session_state.longform_metadata["body"]
-            sentences = [s.strip() for s in re.split(r'(?<=[.?!])\s+', body) if s.strip()]
+        if st.session_state.get("long_script"):
+            body = st.session_state.long_script
+            sentences = [s.strip() for s in body.split(".") if s.strip()]
             st.info(f"대본 문장 수: {len(sentences)}개")
 
             num_images = st.number_input("생성할 이미지 수", 1, min(30, len(sentences)), min(10, len(sentences)), key="lf_img_count")
@@ -1282,22 +1190,22 @@ with tab4:
 
     with img_tab_s:
         st.subheader("쇼츠 이미지")
-        if st.session_state.shorts_data:
-            for ep in st.session_state.shorts_data:
-                ep_num = ep["num"]
-                st.markdown(f"#### {ep_num}편: {ep['title']}")
+        if st.session_state.get("shorts_list"):
+            for ep in st.session_state.shorts_list:
+                ep_num = ep["번호"]
+                st.markdown(f"#### {ep_num}편: {ep['제목']}")
 
-                if ep.get("scenes"):
+                if ep.get("장면"):
                     if ep_num not in st.session_state.generated_images_shorts:
                         st.session_state.generated_images_shorts[ep_num] = []
 
                     if st.button(f"{ep_num}편 전체 이미지 생성", key=f"shorts_gen_all_{ep_num}"):
                         progress = st.progress(0)
                         results = []
-                        for j, scene in enumerate(ep["scenes"]):
-                            url, err = safe_generate_image(scene["prompt"], "9:16")
-                            results.append({"prompt": scene["prompt"], "dialogue": scene["dialogue"], "url": url, "error": err})
-                            progress.progress((j + 1) / len(ep["scenes"]))
+                        for j, scene in enumerate(ep["장면"]):
+                            url, err = safe_generate_image(scene["프롬프트"], "9:16")
+                            results.append({"prompt": scene["프롬프트"], "dialogue": scene["대사"], "url": url, "error": err})
+                            progress.progress((j + 1) / len(ep["장면"]))
                             time.sleep(1)
                         st.session_state.generated_images_shorts[ep_num] = results
                         st.rerun()
@@ -1316,7 +1224,7 @@ with tab4:
             st.info("먼저 쇼츠 대본을 생성하세요.")
 
 
-# ═══ 탭5: 영상 변환 (Kie AI + 자동 효과) ═══
+# ═══ 탭5: 영상 변환 ═══
 with tab5:
     st.header("영상 변환")
 
@@ -1338,7 +1246,6 @@ with tab5:
             images_with_url = [img for img in st.session_state.generated_images_longform if img.get("url")]
             st.info(f"생성된 이미지: {len(images_with_url)}개")
 
-            st.markdown("**일괄 효과 설정**")
             bc1, bc2 = st.columns([3, 1])
             with bc1:
                 bulk_effect = st.selectbox("일괄 적용할 효과", list(CAMERA_EFFECTS.keys()), key="lf_bulk_effect")
@@ -1348,19 +1255,15 @@ with tab5:
                         st.session_state.video_effects_longform[f"lf_{i}"] = bulk_effect
                     st.rerun()
 
-            if st.button("자동 효과 할당 (줌인/줌아웃 순환)", use_container_width=True):
+            if st.button("자동 효과 할당 (순환)", use_container_width=True):
                 for i in range(len(images_with_url)):
                     st.session_state.video_effects_longform[f"lf_{i}"] = get_auto_effect(i)
                 st.rerun()
 
-            st.divider()
-
             for i, img in enumerate(images_with_url):
                 eff_key = f"lf_{i}"
-                # 효과 미지정이면 자동 할당
                 if eff_key not in st.session_state.video_effects_longform:
                     st.session_state.video_effects_longform[eff_key] = get_auto_effect(i)
-
                 with st.container(border=True):
                     c1, c2, c3 = st.columns([2, 2, 1])
                     with c1:
@@ -1374,22 +1277,18 @@ with tab5:
                         st.session_state.video_effects_longform[eff_key] = eff
                         st.markdown(build_effect_preview_html(eff, img.get("url"), "16:9"), unsafe_allow_html=True)
                     with c3:
-                        # Runway 영상 변환 (클릭한 것만)
-                        if st.button("Runway 영상변환", key=f"lf_conv_{i}"):
-                            with st.spinner("Kie AI 영상 변환 중..."):
+                        if st.button("Runway 변환", key=f"lf_conv_{i}"):
+                            with st.spinner("영상 변환 중..."):
                                 try:
                                     task_id, err = api.kie.image_to_video(img["url"], prompt=f"{eff} cinematic movement", duration=5)
                                     if task_id:
                                         st.session_state.video_results_longform[eff_key] = {"task_id": task_id, "status": "processing", "type": "runway"}
-                                        st.success(f"변환 시작 (태스크: {task_id[:8]}...)")
+                                        st.success(f"변환 시작")
                                     else:
                                         st.error(f"실패: {err}")
                                 except Exception as e:
                                     st.error(str(e))
-
-                        st.caption(f"자동효과: {eff}")
-
-                    # 상태 확인
+                        st.caption(f"자동: {eff}")
                     vr = st.session_state.video_results_longform.get(eff_key)
                     if vr:
                         if vr.get("status") == "processing":
@@ -1405,7 +1304,6 @@ with tab5:
                                     st.info(f"진행 중... ({state})")
                         elif vr.get("url"):
                             st.video(vr["url"])
-                            st.caption("Runway 영상 생성 완료")
         else:
             st.info("먼저 이미지를 생성하세요.")
 
@@ -1418,19 +1316,14 @@ with tab5:
                 if not imgs_ok:
                     st.warning("이미지 없음")
                     continue
-
-                # 자동 효과 일괄 할당 버튼
                 if st.button(f"{ep_num}편 자동 효과 할당", key=f"s_auto_eff_{ep_num}"):
                     for j in range(len(imgs_ok)):
                         st.session_state.video_effects_shorts[f"s{ep_num}_{j}"] = get_auto_effect(j)
                     st.rerun()
-
                 for j, img in enumerate(imgs_ok):
                     eff_key = f"s{ep_num}_{j}"
-                    # 효과 미지정이면 자동 할당
                     if eff_key not in st.session_state.video_effects_shorts:
                         st.session_state.video_effects_shorts[eff_key] = get_auto_effect(j)
-
                     with st.container(border=True):
                         c1, c2, c3 = st.columns([2, 2, 1])
                         with c1:
@@ -1444,7 +1337,6 @@ with tab5:
                             st.session_state.video_effects_shorts[eff_key] = eff
                             st.markdown(build_effect_preview_html(eff, img.get("url"), "9:16"), unsafe_allow_html=True)
                         with c3:
-                            # Runway 영상 변환 (클릭한 것만)
                             if st.button("Runway 변환", key=f"s_conv_{eff_key}"):
                                 with st.spinner("영상 변환 중..."):
                                     try:
@@ -1458,10 +1350,7 @@ with tab5:
                                             st.error(f"실패: {err}")
                                     except Exception as e:
                                         st.error(str(e))
-
                             st.caption(f"자동: {eff}")
-
-                        # 상태 확인
                         vr = (st.session_state.video_results_shorts.get(ep_num) or {}).get(str(j))
                         if vr:
                             if vr.get("status") == "processing":
@@ -1482,11 +1371,10 @@ with tab5:
             st.info("먼저 쇼츠 이미지를 생성하세요.")
 
 
-# ═══ 탭6: 음성 합성 (Inworld TTS) ═══
+# ═══ 탭6: 음성 합성 ═══
 with tab6:
     st.header("음성 합성 (Inworld TTS)")
 
-    # ── 공통 음성 설정 ──
     st.markdown("---")
     st.subheader("음성 설정")
 
@@ -1514,7 +1402,6 @@ with tab6:
     with vc4:
         temperature = st.slider("표현력 (온도)", 0.1, 2.0, 1.0, 0.1, key="tts_temp")
 
-    # 음성 카드 미리보기
     voice_info = {
         "Hyunwoo": {"name": "현우", "desc": "젊은 성인 남성 목소리", "icon": "🧑"},
         "Minji": {"name": "민지", "desc": "활기차고 친근한 젊은 여성 목소리", "icon": "👩"},
@@ -1535,31 +1422,49 @@ with tab6:
 
     with tts_tab_l:
         st.subheader("롱폼 TTS")
-        if st.session_state.longform_metadata and st.session_state.longform_metadata.get("body"):
-            body = st.session_state.longform_metadata["body"]
+        if st.session_state.get("long_script"):
+            body = st.session_state.long_script
             st.text_area("대본 미리보기", body[:500] + "..." if len(body) > 500 else body, height=150, disabled=True)
-            st.caption(f"전체 {len(body)}자 | 2000자 제한으로 앞부분만 합성됩니다")
+            st.caption(f"전체 {len(body)}자")
 
-            if st.button("롱폼 음성 생성", type="primary", use_container_width=True):
-                with st.spinner(f"음성 생성 중... ({vi.get('name','')}, {model_display})"):
+            if st.button("롱폼 음성 생성 (파트별)", type="primary", use_container_width=True):
+                part_names = ["일", "이", "삼", "사", "오", "육", "칠", "팔"]
+                all_audio = b""
+                all_ts = []
+                time_offset = 0.0
+                progress = st.progress(0)
+
+                for pi, pname in enumerate(part_names):
+                    part_text = st.session_state.long_parts.get(pname, "")
+                    if not part_text:
+                        continue
+                    progress.progress((pi + 1) / 8, text=f"파트{pname} 음성 생성 중...")
                     try:
                         audio, timestamps, err = api.inworld.synthesize(
-                            text=body[:2000],
+                            text=part_text[:2000],
                             voice_id=selected_voice_id,
                             model_id=selected_model_id,
                             speaking_rate=speaking_rate,
                             temperature=temperature,
                         )
                         if audio:
-                            st.session_state.tts_longform_audio = audio
-                            ts = parse_tts_timestamps(timestamps, body)
-                            st.session_state.tts_longform_timestamps = ts
-                            st.session_state.tts_longform_srt = timestamps_to_srt(ts)
-                            st.success(f"음성 생성 완료 ({vi.get('name','')})")
-                        else:
-                            st.error(f"TTS 실패: {err}")
+                            all_audio += audio
+                            ts = parse_tts_timestamps(timestamps, part_text)
+                            for t in ts:
+                                t["start"] += time_offset
+                                t["end"] += time_offset
+                            all_ts.extend(ts)
+                            if ts:
+                                time_offset = ts[-1]["end"]
                     except Exception as e:
-                        st.error(f"TTS 오류: {str(e)}")
+                        st.warning(f"파트{pname} TTS 실패: {e}")
+                    time.sleep(0.5)
+
+                if all_audio:
+                    st.session_state.tts_longform_audio = all_audio
+                    st.session_state.tts_longform_timestamps = all_ts
+                    st.session_state.tts_longform_srt = timestamps_to_srt(all_ts)
+                    st.success("롱폼 음성 생성 완료")
 
             if st.session_state.tts_longform_audio:
                 st.audio(st.session_state.tts_longform_audio, format="audio/mp3")
@@ -1575,22 +1480,18 @@ with tab6:
 
     with tts_tab_s:
         st.subheader("쇼츠 TTS")
-        if st.session_state.shorts_data:
-            # 전체 일괄 생성
+        if st.session_state.get("shorts_list"):
             if st.button("쇼츠 전편 음성 일괄 생성", use_container_width=True):
                 progress = st.progress(0)
-                total = len(st.session_state.shorts_data)
-                for idx, ep in enumerate(st.session_state.shorts_data):
-                    ep_num = ep["num"]
-                    script = ep.get("script", "")
+                total = len(st.session_state.shorts_list)
+                for idx, ep in enumerate(st.session_state.shorts_list):
+                    ep_num = ep["번호"]
+                    script = ep.get("대본", "")
                     if script and ep_num not in st.session_state.tts_shorts_audio:
                         try:
                             audio, timestamps, err = api.inworld.synthesize(
-                                text=script,
-                                voice_id=selected_voice_id,
-                                model_id=selected_model_id,
-                                speaking_rate=speaking_rate,
-                                temperature=temperature,
+                                text=script, voice_id=selected_voice_id,
+                                model_id=selected_model_id, speaking_rate=speaking_rate, temperature=temperature,
                             )
                             if audio:
                                 st.session_state.tts_shorts_audio[ep_num] = audio
@@ -1605,29 +1506,26 @@ with tab6:
 
             st.divider()
 
-            for ep in st.session_state.shorts_data:
-                ep_num = ep["num"]
+            for ep in st.session_state.shorts_list:
+                ep_num = ep["번호"]
                 with st.container(border=True):
                     ec1, ec2 = st.columns([3, 1])
                     with ec1:
-                        st.markdown(f"**{ep_num}편: {ep['title']}**")
-                        script = ep.get("script", "")
+                        st.markdown(f"**{ep_num}편: {ep['제목']}**")
+                        script = ep.get("대본", "")
                         if script:
                             st.caption(f"{len(script)}자 | 약 {len(script)//7}초")
                     with ec2:
                         has_audio = ep_num in st.session_state.tts_shorts_audio
                         if has_audio:
-                            st.markdown("✅ 생성됨")
+                            st.markdown("생성됨")
                         else:
                             if st.button(f"음성 생성", key=f"tts_s_{ep_num}"):
-                                with st.spinner(f"{ep_num}편 음성 생성 중... ({vi.get('name','')})"):
+                                with st.spinner(f"{ep_num}편 음성 생성 중..."):
                                     try:
                                         audio, timestamps, err = api.inworld.synthesize(
-                                            text=script,
-                                            voice_id=selected_voice_id,
-                                            model_id=selected_model_id,
-                                            speaking_rate=speaking_rate,
-                                            temperature=temperature,
+                                            text=script, voice_id=selected_voice_id,
+                                            model_id=selected_model_id, speaking_rate=speaking_rate, temperature=temperature,
                                         )
                                         if audio:
                                             st.session_state.tts_shorts_audio[ep_num] = audio
@@ -1646,12 +1544,10 @@ with tab6:
                             st.markdown(build_sync_timeline_html(st.session_state.tts_shorts_timestamps[ep_num]), unsafe_allow_html=True)
                         dc1, dc2 = st.columns(2)
                         with dc1:
-                            st.download_button(f"{ep_num}편 음성", st.session_state.tts_shorts_audio[ep_num],
-                                              f"shorts_{ep_num}_tts.mp3", key=f"dl_audio_{ep_num}")
+                            st.download_button(f"{ep_num}편 음성", st.session_state.tts_shorts_audio[ep_num], f"shorts_{ep_num}_tts.mp3", key=f"dl_audio_{ep_num}")
                         with dc2:
                             if st.session_state.tts_shorts_srt.get(ep_num):
-                                st.download_button(f"{ep_num}편 SRT", st.session_state.tts_shorts_srt[ep_num],
-                                                  f"shorts_{ep_num}.srt", key=f"dl_srt_{ep_num}")
+                                st.download_button(f"{ep_num}편 SRT", st.session_state.tts_shorts_srt[ep_num], f"shorts_{ep_num}.srt", key=f"dl_srt_{ep_num}")
         else:
             st.info("먼저 쇼츠 대본을 생성하세요.")
 
@@ -1668,17 +1564,14 @@ with tab7:
         with col_prev:
             st.markdown("**미리보기**")
             preview_text = "여기에 자막이 표시됩니다"
-            if st.session_state.longform_metadata and st.session_state.longform_metadata.get("body"):
-                sentences = [s.strip() for s in st.session_state.longform_metadata["body"].split(".") if s.strip()]
+            if st.session_state.get("long_script"):
+                sentences = [s.strip() for s in st.session_state.long_script.split(".") if s.strip()]
                 if sentences:
                     preview_text = sentences[0][:30]
             st.markdown(build_subtitle_preview_html(st.session_state.sub_settings_longform, preview_text, "16:9"), unsafe_allow_html=True)
-
             if st.button("설정 저장 (롱폼)", use_container_width=True):
                 st.success("저장됨")
-            st.download_button("설정 JSON 다운로드",
-                              json.dumps(st.session_state.sub_settings_longform, ensure_ascii=False, indent=2),
-                              "subtitle_longform.json")
+            st.download_button("설정 JSON 다운로드", json.dumps(st.session_state.sub_settings_longform, ensure_ascii=False, indent=2), "subtitle_longform.json")
 
     with sub_tab_s:
         col_set2, col_prev2 = st.columns([1, 1])
@@ -1687,17 +1580,14 @@ with tab7:
         with col_prev2:
             st.markdown("**미리보기**")
             preview_text2 = "쇼츠 자막 미리보기"
-            if st.session_state.shorts_data:
-                script = st.session_state.shorts_data[0].get("script", "")
+            if st.session_state.get("shorts_list"):
+                script = st.session_state.shorts_list[0].get("대본", "")
                 if script:
                     preview_text2 = script.split(".")[0][:25] if "." in script else script[:25]
             st.markdown(build_subtitle_preview_html(st.session_state.sub_settings_shorts, preview_text2, "9:16"), unsafe_allow_html=True)
-
             if st.button("설정 저장 (쇼츠)", use_container_width=True):
                 st.success("저장됨")
-            st.download_button("설정 JSON 다운로드",
-                              json.dumps(st.session_state.sub_settings_shorts, ensure_ascii=False, indent=2),
-                              "subtitle_shorts.json")
+            st.download_button("설정 JSON 다운로드", json.dumps(st.session_state.sub_settings_shorts, ensure_ascii=False, indent=2), "subtitle_shorts.json")
 
 
 # ═══ 탭8: 최종 합치기 ═══
@@ -1715,22 +1605,14 @@ with tab8:
 
         if lf_images:
             st.success(f"이미지: {len(lf_images)}개 | 음성: {'있음' if has_audio else '없음'} | 자막: {'있음' if has_srt else '없음'}")
-
-            sub_s = st.session_state.sub_settings_longform
-            font_name = sub_s.get("font", "Noto Sans KR")
-            font_size = sub_s.get("size", 48)
-            fc = sub_s.get("color", "#FFFFFF").replace("#", "&H00") if sub_s.get("color") else "&H00FFFFFF"
-
             for i, img in enumerate(lf_images):
                 eff_name = st.session_state.video_effects_longform.get(f"lf_{i}", "줌인 (느린)")
                 zp = effect_to_ffmpeg(eff_name)
                 cmd = f'ffmpeg -loop 1 -i scene_{i+1:03d}.jpg -vf "{zp}" -t 5 -pix_fmt yuv420p scene_{i+1:03d}.mp4'
                 st.code(cmd, language="bash")
-
             concat_list = "\n".join(f"file 'scene_{i+1:03d}.mp4'" for i in range(len(lf_images)))
             st.code(f"# concat.txt 내용:\n{concat_list}", language="text")
             st.code("ffmpeg -f concat -safe 0 -i concat.txt -c copy merged.mp4", language="bash")
-
             if has_audio and has_srt:
                 st.code('ffmpeg -i merged.mp4 -i audio.mp3 -vf "subtitles=subtitle.srt" -c:a aac -shortest final.mp4', language="bash")
         else:
@@ -1750,13 +1632,12 @@ with tab8:
         else:
             st.warning("쇼츠 이미지를 먼저 생성하세요.")
 
-    # ── 체크리스트 ──
     st.divider()
     st.subheader("진행 상황")
     checks = {
         "주제 선택": bool(st.session_state.selected_topic),
-        "롱폼 대본": bool(st.session_state.longform_metadata),
-        "쇼츠 대본": bool(st.session_state.shorts_data),
+        "롱폼 대본": bool(st.session_state.long_parts),
+        "쇼츠 대본": bool(st.session_state.shorts_list),
         "롱폼 이미지": bool([i for i in st.session_state.generated_images_longform if i.get("url")]),
         "쇼츠 이미지": bool(st.session_state.generated_images_shorts),
         "롱폼 음성": st.session_state.tts_longform_audio is not None,

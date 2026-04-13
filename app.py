@@ -1,1089 +1,876 @@
-# ─────────────────────────────────────────────
-# 시니어 콘텐츠 팩토리 v3.5
-# 파일명: app.py
-# 실행: streamlit run app.py
-# API: Skywork(LLM+이미지) / KIE(영상) / Inworld(TTS)
-# ─────────────────────────────────────────────
-
 import streamlit as st
 import requests
 import json
-import re
 import os
+import re
 import time
 import base64
 from datetime import datetime
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
 
+# ───────────────────────────────────────────
+# 페이지 설정
+# ───────────────────────────────────────────
+st.set_page_config(page_title="시니어 콘텐츠 공장 v4.0", layout="wide")
 
-st.set_page_config(page_title="시니어 콘텐츠 팩토리", page_icon="🎬", layout="wide")
-
-# ═══ API 키 ═══
+# ───────────────────────────────────────────
+# API 키 로드
+# ───────────────────────────────────────────
 def load_key(name):
-    val = os.environ.get(name, "")
-    if not val:
+    v = os.environ.get(name, "")
+    if not v:
         try:
-            val = st.secrets[name]
+            v = st.secrets.get(name, "")
         except Exception:
-            val = ""
-    return val if val else ""
+            v = ""
+    return v.strip() if v else ""
 
-
-SKYWORK_API_KEY = load_key("SKYWORK_API_KEY")
+GEMINI_API_KEY = load_key("GEMINI_API_KEY")
 KIE_API_KEY = load_key("KIE_API_KEY")
 INWORLD_API_KEY = load_key("INWORLD_API_KEY")
-GEMINI_API_KEY = load_key("GEMINI_API_KEY")
 
-
-SKYWORK_LLM_BASE = "https://api.apifree.ai"
-SKYWORK_IMG_ENDPOINT = "https://api.apifree.ai/v1/image/submit"
-KIE_BASE = "https://api.kie.ai/api/v1"
-INWORLD_TTS_ENDPOINT = "https://api.inworld.ai/v1/tts:synthesize"
-
-# ═══ TTS 음성 목록 (한국어 4 + 일본어 2) ═══
+# ───────────────────────────────────────────
+# 음성 옵션
+# ───────────────────────────────────────────
 VOICE_OPTIONS = {
-    "현우 (한국어 남성 청년)": {"id": "ko-KR-InJoonNeural", "lang": "ko", "model": "inworld-tts-1.5-max"},
-    "민지 (한국어 여성 활발)": {"id": "ko-KR-SunHiNeural", "lang": "ko", "model": "inworld-tts-1.5-max"},
-    "서준 (한국어 남성 중후)": {"id": "ko-KR-BongJinNeural", "lang": "ko", "model": "inworld-tts-1.5-max"},
-    "윤아 (한국어 여성 차분)": {"id": "ko-KR-YuJinNeural", "lang": "ko", "model": "inworld-tts-1.5-max"},
-    "아스카 (일본어 여성 친근)": {"id": "ja-JP-NanamiNeural", "lang": "ja", "model": "inworld-tts-1.5-max"},
-    "사토시 (일본어 남성 극적)": {"id": "ja-JP-KeitaNeural", "lang": "ja", "model": "inworld-tts-1.5-max"},
+    "한국어 여성 1": {"lang": "ko", "voice_id": "ko-KR-SunHiNeural"},
+    "한국어 여성 2": {"lang": "ko", "voice_id": "ko-KR-JiMinNeural"},
+    "한국어 남성 1": {"lang": "ko", "voice_id": "ko-KR-InJoonNeural"},
+    "한국어 남성 2": {"lang": "ko", "voice_id": "ko-KR-HyunsuNeural"},
+    "일본어 여성": {"lang": "ja", "voice_id": "ja-JP-NanamiNeural"},
+    "일본어 남성": {"lang": "ja", "voice_id": "ja-JP-KeitaNeural"},
 }
 
-# ═══ 글씨체 매핑 (한글만) ═══
+# ───────────────────────────────────────────
+# 글꼴 매핑
+# ───────────────────────────────────────────
 FONT_MAP = {
-    "본고딕 볼드": "NotoSansKR-Bold",
-    "본고딕 레귤러": "NotoSansKR-Regular",
-    "본명조 볼드": "NotoSerifKR-Bold",
-    "본명조 레귤러": "NotoSerifKR-Regular",
+    "나눔고딕": "NanumGothic",
     "나눔고딕 볼드": "NanumGothicBold",
-    "나눔고딕 엑스트라볼드": "NanumGothicExtraBold",
-    "나눔고딕 레귤러": "NanumGothic",
+    "나눔명조": "NanumMyeongjo",
     "나눔명조 볼드": "NanumMyeongjoBold",
-    "나눔명조 레귤러": "NanumMyeongjo",
-    "나눔바른고딕 볼드": "NanumBarunGothicBold",
-    "나눔바른고딕 레귤러": "NanumBarunGothic",
-    "나눔스퀘어라운드 볼드": "NanumSquareRoundB",
-    "나눔스퀘어라운드 엑스트라볼드": "NanumSquareRoundEB",
-    "나눔스퀘어라운드 레귤러": "NanumSquareRoundR",
+    "나눔바른고딕": "NanumBarunGothic",
+    "나눔스퀘어": "NanumSquare",
+    "나눔스퀘어 볼드": "NanumSquareBold",
+    "나눔바른펜": "NanumBarunpen",
+    "나눔브러쉬": "NanumBrush",
     "나눔손글씨 펜": "NanumPen",
-    "나눔손글씨 붓": "NanumBrush",
     "배달의민족 주아": "BMJUA",
-    "배달의민족 한나는열한살": "BMHANNApro",
-    "배달의민족 도현": "BMDOHYEON",
-    "배달의민족 연성": "BMYeonSung",
-    "에스코어드림 볼드": "SCDream5",
-    "에스코어드림 미디엄": "SCDream4",
-    "에스코어드림 라이트": "SCDream3",
-    "프리텐다드 볼드": "Pretendard-Bold",
-    "프리텐다드 세미볼드": "Pretendard-SemiBold",
-    "프리텐다드 레귤러": "Pretendard-Regular",
-    "마루부리 볼드": "MaruBuri-Bold",
-    "마루부리 레귤러": "MaruBuri-Regular",
-    "검은고딕": "BlackHanSans-Regular",
-    "이서윤체": "LeeSeoyun",
-    "여기어때 잘난체": "Jalnan",
-    "카페24 써라운드": "Cafe24Ssurround",
-    "카페24 당당해": "Cafe24Dangdanghae",
-    "카페24 아네모네": "Cafe24Ohsquare",
-    "쿠키런 볼드": "CookieRun-Bold",
-    "쿠키런 레귤러": "CookieRun-Regular",
-    "잉크립퀴드체": "InkLipquid",
-    "학교안심 돋움": "HakgyoansimDotum",
-    "학교안심 바탕": "HakgyoansimBatang",
-    "강원교육 튼튼체": "GangwonEduTunTun",
+    "배달의민족 한나": "BMHanna",
+    "배달의민족 도현": "BMDoHyeon",
+    "블랙한산스": "BlackHanSans",
+    "이사만루 볼드": "East Sea Dokdo",
+    "송명체": "Song Myung",
+    "감자꽃마을": "Gamja Flower",
+    "검은고딕": "Black And White Picture",
+    "고딕 A1": "Gothic A1",
+    "도현체": "Do Hyeon",
 }
 FONT_LIST = list(FONT_MAP.keys())
 
-# ═══ 유틸 함수 ═══
-def clean_special(text):
-    if not text:
-        return ""
-    return re.sub(r'[^\uAC00-\uD7A3\u3131-\u3163\u1100-\u11FFa-zA-Z0-9\s.,?]', '', text).strip()
+# ───────────────────────────────────────────
+# 자막 스타일 기본값
+# ───────────────────────────────────────────
+DEFAULT_SUB_LONG = {
+    "font": "나눔고딕 볼드",
+    "size": 28,
+    "color": "#FFFFFF",
+    "outline_color": "#000000",
+    "outline_width": 2,
+    "position": "하단",
+    "offset_up": 0,
+    "offset_down": 0,
+    "offset_left": 0,
+    "offset_right": 0,
+    "bg_opacity": 0.5,
+}
+DEFAULT_SUB_SHORTS = {
+    "font": "배달의민족 주아",
+    "size": 36,
+    "color": "#FFFF00",
+    "outline_color": "#000000",
+    "outline_width": 3,
+    "position": "중앙",
+    "offset_up": 0,
+    "offset_down": 0,
+    "offset_left": 0,
+    "offset_right": 0,
+    "bg_opacity": 0.0,
+}
 
-def clean_script_output(full_script):
-    if not full_script:
-        return ""
-    c = full_script
-    c = re.sub(r'[=\-─━]{2,}[^\n]*파트[^\n]*[=\-─━]{2,}', '', c)
-    c = re.sub(r'【[^】]*파트[^】]*】', '', c)
-    c = re.sub(r'[▶▷►][^\n]*파트[^\n]*', '', c)
-    c = re.sub(r'#{1,6}\s*파트[^\n]*', '', c)
-    c = re.sub(r'\[[^\]]*파트[^\]]*\]', '', c)
-    c = re.sub(r'파트\s*[일이삼사오육칠팔구십]\s*[:：]?\s*', '', c)
-    c = re.sub(r'파트\s*\d+\s*[:：]?\s*', '', c)
-    c = re.sub(r'Part\s*\d+\s*[:：]?\s*', '', c, flags=re.IGNORECASE)
-    c = re.sub(r'\*+', '', c)
-    c = re.sub(r'#{1,6}\s*', '', c)
-    c = re.sub(r'[【】\[\]{}▶▷►◆◇■□●○★☆→←↑↓《》〈〉「」『』]', '', c)
-    c = re.sub(r'---+', '', c)
-    c = re.sub(r'===+', '', c)
-    c = re.sub(r'\n\s*\n+', '\n', c)
-    return c.strip()
-
-def extract_section(text, section_name):
-    m = re.search(rf'==={section_name}===\s*(.*?)(?====|$)', text, re.DOTALL)
-    if m:
-        return m.group(1).strip()
-    m2 = re.search(rf'{section_name}\s*[:：]\s*(.*?)(?=\n[가-힣A-Z]|\n\n|$)', text, re.DOTALL)
-    if m2:
-        return m2.group(1).strip()
-    return ""
-
-def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
-    if not SKYWORK_API_KEY:
-        return "FAILED - DO NOT RETRY: Skywork API 키가 설정되지 않았습니다."
-    try:
-        headers = {
-            "Authorization": f"Bearer {SKYWORK_API_KEY}",
-            "Content-Type": "application/json"
-        }
-       def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
-    if not GEMINI_API_KEY:
-        return "FAILED - DO NOT RETRY: Gemini API 키가 설정되지 않았습니다."
-    try:
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": f"{system_prompt}\n\n{user_prompt}"}]
-                }
-            ],
-            "generationConfig": {
-                "maxOutputTokens": max_tokens,
-                "temperature": temperature
-            }
-        }
-        resp = requests.post(url, headers=headers, json=payload, timeout=120)
-        if resp.status_code != 200:
-            return f"FAILED - DO NOT RETRY: 상태코드 {resp.status_code} / 응답: {resp.text[:300]}"
-        data = resp.json()
-        if "error" in data:
-            return f"FAILED - DO NOT RETRY: {data['error'].get('message', str(data['error']))}"
-        candidates = data.get("candidates", [])
-        if not candidates:
-            return "FAILED - DO NOT RETRY: 응답에 candidates 없음."
-        content = candidates[0].get("content", {})
-        parts = content.get("parts", [])
-        if not parts:
-            return "FAILED - DO NOT RETRY: 응답 parts 비어있음."
-        return parts[0].get("text", "")
-    except requests.exceptions.Timeout:
-        return "FAILED - DO NOT RETRY: 요청 시간 초과 (120초)"
-    except requests.exceptions.ConnectionError:
-        return "FAILED - DO NOT RETRY: 서버 연결 실패"
-    except Exception as e:
-        return f"FAILED - DO NOT RETRY: {str(e)}"
-
-
-        # base64인 경우
-        if img_url.startswith("data:") or (len(img_url) > 500 and not img_url.startswith("http")):
-            if img_url.startswith("data:"):
-                img_url = img_url.split(",", 1)[1]
-            img_bytes = base64.b64decode(img_url)
-        else:
-            img_resp = requests.get(img_url, timeout=60)
-            img_bytes = img_resp.content
-
-        fpath = os.path.join("generated_images", filename)
-        with open(fpath, "wb") as f:
-            f.write(img_bytes)
-        return fpath
-
-    except Exception as e:
-        st.warning(f"이미지 생성 오류: {str(e)}")
-        return None
-
-def kie_create_task(image_url, prompt, duration="5"):
-    """KIE (Kling AI) 영상 생성 요청"""
-    if not KIE_API_KEY:
-        return None
-    try:
-        headers = {
-            "Authorization": f"Bearer {KIE_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "model": "kling-2.6",
-            "task_type": "image-to-video",
-            "input": {
-                "image_url": image_url,
-                "prompt": prompt,
-                "duration": int(duration),
-                "audio": False
-            }
-        }
-        resp = requests.post(
-            f"{KIE_BASE}/jobs/createTask",
-            headers=headers,
-            json=payload,
-            timeout=30
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            return data.get("data", {}).get("task_id") or data.get("task_id")
-        return None
-    except Exception as e:
-        st.warning(f"KIE 요청 실패: {str(e)}")
-        return None
-
-def kie_check_task(task_id):
-    """KIE 작업 상태 확인"""
-    if not KIE_API_KEY or not task_id:
-        return None, None
-    try:
-        headers = {"Authorization": f"Bearer {KIE_API_KEY}"}
-        resp = requests.get(
-            f"{KIE_BASE}/jobs/queryTask?task_id={task_id}",
-            headers=headers,
-            timeout=30
-        )
-        if resp.status_code == 200:
-            data = resp.json()
-            task_data = data.get("data", data)
-            status = task_data.get("status", "unknown")
-            output = None
-            if status in ["completed", "succeed"]:
-                output = task_data.get("output", {}).get("video_url") or task_data.get("video_url")
-            return status, output
-        return "error", None
-    except Exception:
-        return "error", None
-
-def inworld_tts(text, voice_id, speed=1.0, temperature=0.5, lang="ko"):
-    """Inworld TTS 음성 생성"""
-    if not INWORLD_API_KEY:
-        return None
-    try:
-        headers = {
-            "Authorization": f"Bearer {INWORLD_API_KEY}",
-            "Content-Type": "application/json"
-        }
-        payload = {
-            "text": text,
-            "voice_id": voice_id,
-            "model": "inworld-tts-1.5-max",
-            "language": lang,
-            "speaking_rate": speed,
-            "temperature": temperature,
-            "output_format": "mp3"
-        }
-        resp = requests.post(
-            INWORLD_TTS_ENDPOINT,
-            headers=headers,
-            json=payload,
-            timeout=300
-        )
-        if resp.status_code == 200:
-            content_type = resp.headers.get("Content-Type", "")
-            if "audio" in content_type or "octet" in content_type:
-                return resp.content
-            else:
-                data = resp.json()
-                audio_b64 = data.get("audio") or data.get("data", {}).get("audio")
-                if audio_b64:
-                    return base64.b64decode(audio_b64)
-        return None
-    except Exception:
-        return None
-
-def generate_srt(sentences, avg_duration=4.0):
-    """SRT 자막 파일 생성"""
-    srt_lines = []
-    for i, sent in enumerate(sentences):
-        start = i * avg_duration
-        end = start + avg_duration
-        sh, sm, ss = int(start//3600), int((start%3600)//60), start%60
-        eh, em, es = int(end//3600), int((end%3600)//60), end%60
-        srt_lines.append(f"{i+1}")
-        srt_lines.append(f"{sh:02d}:{sm:02d}:{ss:06.3f} --> {eh:02d}:{em:02d}:{es:06.3f}".replace(".",","))
-        srt_lines.append(sent)
-        srt_lines.append("")
-    return "\n".join(srt_lines)
-
-# ═══ 세션 초기화 ═══
+# ───────────────────────────────────────────
+# 세션 스테이트 초기화
+# ───────────────────────────────────────────
 defaults = {
-    "selected_topic": "", "selected_category": "", "topics_list": [],
-    "structure": "", "parts": {}, "full_script": "",
-    "long_title": "", "long_tags": "", "long_desc": "",
-    "long_sentences": [], "long_prompts": [],
-    "shorts_scripts": [], "shorts_scenes": {},
-    "longform_link": "", "pinned_comments": {},
+    "selected_topic": "",
+    "selected_category": "경제/사회",
+    "script_text": "",
+    "script_lines": [],
+    "uploaded_images": [],
+    "image_paths": [],
+    "video_urls": [],
+    "tts_audio_bytes": [],
+    "subtitle_style_long": dict(DEFAULT_SUB_LONG),
+    "subtitle_style_shorts": dict(DEFAULT_SUB_SHORTS),
+    "reference_image": None,
     "reference_image_path": "",
-    "gen_images_long": {}, "gen_images_shorts": {},
-    "kie_tasks": {},
-    "tts_audio_long": None, "tts_audio_shorts": {},
-    "subtitle_style_long": {
-        "font": "NotoSansKR-Bold", "size": 48,
-        "color": "#FFFFFF", "outline_color": "#000000",
-        "outline_width": 3, "position": "bottom-center",
-        "offset_x": 0, "offset_y": 0, "bg_opacity": 0.0
-    },
-    "subtitle_style_shorts": {
-        "font": "NotoSansKR-Bold", "size": 52,
-        "color": "#FFFF00", "outline_color": "#000000",
-        "outline_width": 4, "position": "center",
-        "offset_x": 0, "offset_y": 0, "bg_opacity": 0.5
-    },
+    "content_type": "쇼츠",
 }
 for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ═══ 사이드바 ═══
-with st.sidebar:
-    st.header("공통 설정")
+# ───────────────────────────────────────────
+# 유틸 함수
+# ───────────────────────────────────────────
+def clean_special(text):
+    if not text:
+        return ""
+    text = re.sub(r'[*#_~`>|]', '', text)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    return text.strip()
 
+def safe_generate(prompt, system_prompt="", max_tokens=4096):
+    """Gemini API를 사용한 텍스트 생성"""
+    if not GEMINI_API_KEY:
+        return "오류: GEMINI_API_KEY가 설정되지 않았습니다."
+    
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    
+    parts = []
+    if system_prompt:
+        parts.append({"text": f"[System] {system_prompt}"})
+    parts.append({"text": prompt})
+    
+    payload = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {
+            "maxOutputTokens": max_tokens,
+            "temperature": 0.8,
+        }
+    }
+    
+    try:
+        resp = requests.post(url, json=payload, timeout=60)
+        if resp.status_code != 200:
+            return f"오류: Gemini API 응답 {resp.status_code} - {resp.text[:200]}"
+        data = resp.json()
+        candidates = data.get("candidates", [])
+        if not candidates:
+            return "오류: Gemini API 응답에 결과가 없습니다."
+        content = candidates[0].get("content", {})
+        parts_out = content.get("parts", [])
+        if not parts_out:
+            return "오류: Gemini API 응답 파츠가 비어있습니다."
+        return parts_out[0].get("text", "")
+    except requests.exceptions.Timeout:
+        return "오류: Gemini API 시간 초과"
+    except requests.exceptions.ConnectionError:
+        return "오류: Gemini API 연결 실패"
+    except Exception as e:
+        return f"오류: {str(e)}"
+
+def generate_srt(lines, durations=None):
+    """SRT 자막 파일 생성"""
+    srt = ""
+    current_time = 0.0
+    for i, line in enumerate(lines):
+        dur = durations[i] if durations and i < len(durations) else 5.0
+        start_h = int(current_time // 3600)
+        start_m = int((current_time % 3600) // 60)
+        start_s = int(current_time % 60)
+        start_ms = int((current_time % 1) * 1000)
+        end_time = current_time + dur
+        end_h = int(end_time // 3600)
+        end_m = int((end_time % 3600) // 60)
+        end_s = int(end_time % 60)
+        end_ms = int((end_time % 1) * 1000)
+        srt += f"{i+1}\n"
+        srt += f"{start_h:02d}:{start_m:02d}:{start_s:02d},{start_ms:03d} --> {end_h:02d}:{end_m:02d}:{end_s:02d},{end_ms:03d}\n"
+        srt += f"{line.strip()}\n\n"
+        current_time = end_time
+    return srt
+
+# ───────────────────────────────────────────
+# 사이드바
+# ───────────────────────────────────────────
+with st.sidebar:
+    st.header("설정")
+    
     st.subheader("API 연결 상태")
     if GEMINI_API_KEY:
-    st.success("Gemini API: 연결됨")
-else:
-    st.error("Gemini API: 키 없음")
-
-
+        st.success("Gemini API: 연결됨")
+    else:
+        st.error("Gemini API: 키 없음")
     if KIE_API_KEY:
         st.success("KIE API: 연결됨")
     else:
-        st.warning("KIE API: 키 없음 (영상생성 불가)")
-
+        st.warning("KIE API: 키 없음")
     if INWORLD_API_KEY:
         st.success("Inworld API: 연결됨")
     else:
-        st.warning("Inworld API: 키 없음 (TTS 불가)")
-
+        st.warning("Inworld API: 키 없음")
+    
     st.divider()
-
-    st.subheader("주인공 레퍼런스 이미지")
-    st.caption("이미지 생성 시 주인공 얼굴을 일관되게 유지하기 위한 참조 이미지입니다.")
-
-    ref_img = st.file_uploader("이미지 업로드 (PNG/JPG)", type=["png", "jpg", "jpeg"], key="sidebar_ref")
-    if ref_img:
-        os.makedirs("reference", exist_ok=True)
-        ref_path = os.path.join("reference", "reference.png")
-        with open(ref_path, "wb") as f:
-            f.write(ref_img.getvalue())
-        st.session_state["reference_image_path"] = ref_path
-        st.image(ref_path, caption="현재 레퍼런스", use_container_width=True)
-    elif st.session_state.get("reference_image_path") and os.path.exists(st.session_state["reference_image_path"]):
-        st.image(st.session_state["reference_image_path"], caption="현재 레퍼런스", use_container_width=True)
-    else:
-        st.info("아직 업로드된 이미지가 없습니다.")
-
+    
+    st.subheader("레퍼런스 이미지")
+    ref_upload = st.file_uploader("주인공 참고 이미지", type=["png", "jpg", "jpeg", "webp"], key="ref_img_upload")
+    if ref_upload:
+        st.session_state["reference_image"] = ref_upload.getvalue()
+        st.image(ref_upload, caption="레퍼런스 이미지", width=200)
+    elif st.session_state.get("reference_image"):
+        st.image(st.session_state["reference_image"], caption="레퍼런스 이미지", width=200)
+    
     st.divider()
+    
+    st.subheader("콘텐츠 유형")
+    st.session_state["content_type"] = st.radio(
+        "유형 선택", ["쇼츠", "롱폼"], 
+        index=0 if st.session_state.get("content_type", "쇼츠") == "쇼츠" else 1,
+        key="content_type_radio"
+    )
 
-    if st.session_state.get("selected_topic"):
-        st.subheader("현재 주제")
-        st.write(st.session_state["selected_topic"])
-        st.caption(st.session_state.get("selected_category", ""))
-# ═══ 메인 ═══
-st.title("시니어 콘텐츠 팩토리")
+# ───────────────────────────────────────────
+# 메인 타이틀
+# ───────────────────────────────────────────
+st.title("시니어 콘텐츠 공장 v4.0")
+st.caption("Gemini 주제추천 → Skywork 대본/이미지(직접) → 영상변환 → TTS → 자막 → 합치기")
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-    "1.주제추천", "2.롱폼대본", "3.쇼츠대본",
-    "4.이미지생성", "5.영상생성", "6.TTS",
-    "7.자막스타일", "8.최종합치기"
+# ───────────────────────────────────────────
+# 탭 구성
+# ───────────────────────────────────────────
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
+    "1. 주제 추천",
+    "2. 대본 입력",
+    "3. 이미지 업로드",
+    "4. 영상 변환",
+    "5. TTS 음성",
+    "6. 자막 스타일",
+    "7. 최종 합치기",
 ])
 
-# ═══ 탭1: 주제 추천 ═══
+# ═══════════════════════════════════════════
+# 탭1: 주제 추천 (Gemini API)
+# ═══════════════════════════════════════════
 with tab1:
     st.header("주제 추천")
-    category = st.selectbox("카테고리 선택", ["경제/사회","시니어 창작 민담/설화","창작 미스터리/괴담","창작 역사"], key="cat_select")
-    extract_prompts = {
-        "경제/사회": "시니어 유튜브 채널 주제 기획자로서 최근 한국 경제 사회 이슈 중 시니어 시청자가 관심 가질 만한 주제 10개를 추천하세요.\n규칙:\n- 제목은 반드시 20자 이내 한글\n- 특수기호 물음표 느낌표 금지\n- 숫자는 아라비아 숫자\n- 핵심 키워드를 앞에 배치\n- 한 줄에 하나씩 번호 없이 출력\n- 자극적이고 클릭을 유도하는 제목",
-        "시니어 창작 민담/설화": "시니어 유튜브 채널 주제 기획자로서 한국 전통 민담 설화를 현대적으로 재해석한 창작 주제 10개를 추천하세요.\n규칙:\n- 제목은 반드시 20자 이내 한글\n- 특수기호 물음표 느낌표 금지\n- 숫자는 아라비아 숫자\n- 핵심 키워드를 앞에 배치\n- 한 줄에 하나씩 번호 없이 출력\n- 시니어 감성에 맞는 서사적 제목",
-        "창작 미스터리/괴담": "시니어 유튜브 채널 주제 기획자로서 한국 배경의 창작 미스터리 괴담 주제 10개를 추천하세요.\n규칙:\n- 제목은 반드시 20자 이내 한글\n- 특수기호 물음표 느낌표 금지\n- 숫자는 아라비아 숫자\n- 핵심 키워드를 앞에 배치\n- 한 줄에 하나씩 번호 없이 출력\n- 몰입감 있는 공포 서스펜스 제목",
-        "창작 역사": "시니어 유튜브 채널 주제 기획자로서 한국 역사 속 흥미로운 사건을 재조명하는 주제 10개를 추천하세요.\n규칙:\n- 제목은 반드시 20자 이내 한글\n- 특수기호 물음표 느낌표 금지\n- 숫자는 아라비아 숫자\n- 핵심 키워드를 앞에 배치\n- 한 줄에 하나씩 번호 없이 출력\n- 역사적 사실 기반 자극적 제목"
-    }
-    if st.button("주제 추천 받기", key="btn_topic"):
-        with st.spinner("주제를 추천받는 중..."):
-            result = safe_generate(
-                "시니어 유튜브 채널 전문 기획자입니다. 요청에 맞는 주제만 출력하세요.",
-                extract_prompts.get(category, extract_prompts["경제/사회"]),
-                max_tokens=1024
-            )
-            if result and not result.startswith("FAILED"):
-                lines = [re.sub(r'^[\d\.\)\-\*]\s*','',l).strip() for l in result.strip().split('\n') if l.strip()]
-                st.session_state["topics_list"] = [t for t in lines if t and len(t)<=25][:10]
-                st.session_state["selected_category"] = category
-            elif result:
-                st.error(result)
+    st.info("카테고리를 선택하고 버튼을 누르면 Gemini가 쇼츠/롱폼에 적합한 주제 5개를 추천합니다.")
+    
+    categories = [
+        "경제/사회", "부동산", "창업/자영업", "노동/일자리",
+        "유흥/향락산업", "먹거리/외식", "건강/의료",
+        "교육", "IT/기술", "범죄/사건사고"
+    ]
+    
+    selected_cat = st.selectbox(
+        "카테고리 선택",
+        categories,
+        index=categories.index(st.session_state.get("selected_category", "경제/사회")),
+        key="cat_select"
+    )
+    st.session_state["selected_category"] = selected_cat
+    
+    if st.button("주제 추천 받기", key="btn_recommend", use_container_width=True):
+        if not GEMINI_API_KEY:
+            st.error("Gemini API 키가 설정되지 않았습니다. Streamlit Secrets에 GEMINI_API_KEY를 추가해주세요.")
+        else:
+            with st.spinner("Gemini에서 주제를 추천받고 있습니다..."):
+                content_label = st.session_state.get("content_type", "쇼츠")
+                prompt = f"""당신은 유튜브 {content_label} 콘텐츠 기획 전문가입니다.
 
-    if st.session_state["topics_list"]:
-        st.subheader(f"추천 주제 ({st.session_state.get('selected_category','')})")
-        for i, topic in enumerate(st.session_state["topics_list"]):
-            c1, c2 = st.columns([5,1])
-            with c1:
-                st.write(f"{i+1}. {topic}")
-            with c2:
-                if st.button("선택", key=f"sel_{i}"):
-                    st.session_state["selected_topic"] = topic
-                    st.success(f"선택됨: {topic}")
-    if st.session_state["selected_topic"]:
-        st.info(f"현재 선택된 주제: {st.session_state['selected_topic']}")
+카테고리: {selected_cat}
 
-# ═══ 탭2: 롱폼 대본 ═══
-with tab2:
-    st.header("롱폼 대본 생성 (30~40분)")
-    if st.session_state["selected_topic"]:
-        st.info(f"주제: {st.session_state['selected_topic']} / 카테고리: {st.session_state.get('selected_category','')}")
-    else:
-        st.warning("먼저 탭1에서 주제를 선택하세요.")
+이 카테고리에서 유튜브 {content_label}로 만들면 조회수가 높을 만한 주제 5개를 추천해주세요.
 
-    part_names = ['일','이','삼','사','오','육','칠','팔']
-
-    def build_structure_prompt(topic, cat):
-        return f"""30~40분 분량의 시니어 유튜브 롱폼 대본 구조를 설계하세요.
-주제: {topic} / 카테고리: {cat}
-파트 일: 도입부. 충격적 현장 묘사.
-파트 이: 배경 설명. 맥락.
-파트 삼: 핵심 원인 분석.
-파트 사: 내부 실태와 폭로.
-파트 오: 충돌과 갈등. 클라이맥스.
-파트 육: 반전과 새로운 시각.
-파트 칠: 현재 상황.
-파트 팔: 마무리와 여운.
-각 파트별 핵심 내용 요약 2~3줄 출력. 감정 곡선 한 줄 요약."""
-
-    def build_part_prompt(topic, cat, structure, part_num, part_name):
-        return f"""시니어 유튜브 롱폼 대본 작가입니다.
-주제: {topic} / 카테고리: {cat}
-전체 구조:
-{structure}
-파트 {part_name} (8파트 중 {part_num}번째) 작성.
 규칙:
-- 약 4~5분 분량. 30~45개 문장.
-- 한 문장 15~50자. 50자 넘으면 쪼개기.
-- 마침표만 사용. 물음표는 질문만.
-- 숫자 한글. 영어 순화어.
-- 습니다체 기본 + 까요체 질문.
-- 파트 제목 번호 소제목 금지.
-- 인사 자기소개 구독 좋아요 금지.
-- 접속사는 근데 그래서 결국 알고 보니 문제는 만.
-순수 대본 문장만 출력."""
+- 각 주제는 20자 이내로 짧고 임팩트 있게
+- 특수기호 사용 금지
+- 번호는 1. 2. 3. 4. 5. 형식으로
+- 시청자가 클릭하고 싶은 자극적이고 궁금증을 유발하는 제목
+- 각 주제 아래에 한 줄로 간단한 설명 추가
+- 현재 트렌드와 관련된 주제 우선
 
-    def build_meta_prompt(topic, full_script):
-        return f"""롱폼 대본의 제목 태그 설명을 만드세요.
-주제: {topic}
-대본 첫 부분: {full_script[:500]}
-===제목===
-한글 20자 이내. 특수기호 물음표 느낌표 금지. 숫자 아라비아. 핵심 키워드 앞 배치.
-===태그===
-쉼표 구분 15~20개. 한글.
-===설명===
-약 200자. 해시태그 3~5개.
-위 형식 그대로 출력."""
+예시 형식:
+1. 주제 제목
+설명: 간단한 한 줄 설명
 
-    if st.button("롱폼 대본 전체 생성", key="btn_longform"):
-        topic = st.session_state["selected_topic"]
-        cat = st.session_state.get("selected_category","")
-        if not topic:
-            st.error("주제를 먼저 선택하세요.")
-        else:
-            progress = st.progress(0)
-            status = st.empty()
-            status.text("구조 설계 중...")
-            structure = safe_generate(
-                "시니어 유튜브 롱폼 대본 구조 설계 전문가입니다.",
-                build_structure_prompt(topic, cat),
-                max_tokens=2048
-            )
-            st.session_state["structure"] = structure
-            progress.progress(10)
+5개만 출력하세요."""
 
-            all_parts = []
-            for i in range(8):
-                pname = part_names[i]
-                status.text(f"파트 {pname} 생성 중... ({i+1}/8)")
-                part = safe_generate(
-                    "시니어 유튜브 롱폼 대본 작가입니다. 파트 제목 번호 없이 순수 대본만 출력.",
-                    build_part_prompt(topic, cat, structure, i+1, pname),
-                    max_tokens=4096
-                )
-                cleaned = clean_script_output(part)
-                st.session_state["parts"][pname] = cleaned
-                all_parts.append(cleaned)
-                progress.progress(10 + int((i+1)*10))
-
-            full = clean_script_output("\n".join(all_parts))
-            st.session_state["full_script"] = full
-            sentences = [s.strip() for s in full.split('.') if s.strip() and len(s.strip()) > 3]
-            st.session_state["long_sentences"] = sentences
-            progress.progress(95)
-
-            status.text("제목 태그 설명 생성 중...")
-            meta = safe_generate(
-                "유튜브 메타데이터 전문가입니다.",
-                build_meta_prompt(topic, full),
-                max_tokens=1024
-            )
-            st.session_state["long_title"] = clean_special(extract_section(meta,"제목")) or topic
-            st.session_state["long_tags"] = extract_section(meta,"태그")
-            st.session_state["long_desc"] = extract_section(meta,"설명")
-            progress.progress(100)
-            status.text("완료!")
-
-    if st.session_state.get("full_script"):
-        st.subheader("제목")
-        st.code(st.session_state["long_title"], language=None)
-        st.subheader("태그")
-        st.code(st.session_state["long_tags"], language=None)
-        st.subheader("설명")
-        st.code(st.session_state["long_desc"], language=None)
-        st.subheader("전체 대본 (순수 대본)")
-        st.code(st.session_state["full_script"], language=None)
-        sc = len(st.session_state.get("long_sentences",[]))
-        st.caption(f"글자 수: {len(st.session_state['full_script'])} / 문장 수: {sc} / 예상 시간: 약 {round(sc*0.12,1)}분")
-
-# ═══ 탭3: 쇼츠 대본 ═══
-with tab3:
-    st.header("쇼츠 대본 생성 (3편 세트)")
-    if st.session_state["selected_topic"]:
-        st.info(f"주제: {st.session_state['selected_topic']}")
-    else:
-        st.warning("먼저 탭1에서 주제를 선택하세요.")
-
-    longform_link = st.text_input("롱폼 영상 링크 (고정 댓글에 삽입)",
-                                   value=st.session_state.get("longform_link",""),
-                                   placeholder="https://youtu.be/...", key="link_input")
-    st.session_state["longform_link"] = longform_link
-
-    if st.session_state.get("reference_image_path"):
-        st.success("주인공 레퍼런스 이미지: 적용됨 (사이드바에서 변경 가능)")
-    else:
-        st.warning("주인공 레퍼런스 이미지가 없습니다. 왼쪽 사이드바에서 업로드하세요.")
-
-    def build_shorts_prompt(topic, cat):
-        return f"""유튜브 쇼츠 백만 조회수 전문 대본 작가이자 이미지 프롬프트 전문가입니다.
-대주제: {topic} / 카테고리: {cat}
-
-쇼츠 3편 세트를 기획하고 각 편마다 대본과 이미지 프롬프트를 작성하세요.
-
-세트 기획: 대주제에서 3개 소주제 도출. 중복 없이 연관성 높게.
-8가지 관점에서 골고루: 몰락 원인 / 전성기 실태 / 내부 폭로 / 비교 분석 / 수익 구조 / 피해자 시점 / 현재 상황 / 미래 전망
-
-대본 규칙: 각 편 8~15문장. 첫 문장은 현장 투척. 첫 3문장 열린 고리. 접속사 근데 그래서 결국 알고 보니 문제는. 한 문장 15~40자. 습니다+까요. 번호 소제목 인사 구독 금지. 영어 숫자 한글. 마침표만. 마지막 묵직한 여운.
-
-이미지 프롬프트: 문장수=장면수. SD 2D anime style,로 시작. 9:16 vertical aspect ratio로 끝. 주인공 등장시 main character exactly matching the uploaded reference image, same face, same hairstyle, same features, consistent character design, 9:16 vertical aspect ratio
-
-상단제목: 한 줄 15자 이내 두 줄. 숫자 아라비아. 특수기호 금지.
-
-출력 형식:
-=001=
-제목: (50자 이내)
-상단제목 첫째 줄: (15자 이내)
-상단제목 둘째 줄: (15자 이내)
-설명글: (200자 해시태그 3~5개)
-태그: (쉼표 구분 15~20개)
-순수 대본:
-(문장만 마침표로 나열)
-=장면001=
-대사: (첫 번째 문장)
-프롬프트: SD 2D anime style, (영어), (접미어)
-(문장 수만큼 반복)
-=002= (동일) =003= (동일)"""
-
-    if st.button("쇼츠 3편 세트 생성", key="btn_shorts"):
-        topic = st.session_state["selected_topic"]
-        cat = st.session_state.get("selected_category","")
-        if not topic:
-            st.error("주제를 먼저 선택하세요.")
-        else:
-            with st.spinner("쇼츠 3편 생성 중... (약 1~2분)"):
-                result = safe_generate(
-                    "유튜브 쇼츠 백만 조회수 전문 대본 작가이자 이미지 프롬프트 전문가입니다. 형식을 정확히 따르세요.",
-                    build_shorts_prompt(topic, cat),
-                    max_tokens=8192,
-                    temperature=0.8
-                )
-                if result and not result.startswith("FAILED"):
-                    blocks = [b.strip() for b in re.split(r'=00[1-3]=', result) if b.strip()]
-                    parsed, all_sc = [], {}
-                    for idx, block in enumerate(blocks[:3]):
-                        sn = idx + 1
-                        title_m = re.search(r'제목:\s*(.+)', block)
-                        top1_m = re.search(r'상단제목\s*첫째\s*줄:\s*(.+)', block)
-                        top2_m = re.search(r'상단제목\s*둘째\s*줄:\s*(.+)', block)
-                        desc_m = re.search(r'설명글:\s*(.+?)(?=태그:|$)', block, re.DOTALL)
-                        tags_m = re.search(r'태그:\s*(.+?)(?=순수|$)', block, re.DOTALL)
-                        script_m = re.search(r'순수\s*대본[:\s]*(.+?)(?==장면|$)', block, re.DOTALL)
-                        scenes = []
-                        for sm in re.finditer(r'=장면(\d+)=\s*대사:\s*(.+?)\s*프롬프트:\s*(.+?)(?==장면|=00|$)', block, re.DOTALL):
-                            scenes.append({"scene_id":sm.group(1).strip(),"dialogue":sm.group(2).strip(),"prompt":sm.group(3).strip()})
-                        sd = {
-                            "num": sn,
-                            "title": clean_special(title_m.group(1)) if title_m else f"쇼츠 {sn}",
-                            "top_line1": clean_special(top1_m.group(1)) if top1_m else "",
-                            "top_line2": clean_special(top2_m.group(1)) if top2_m else "",
-                            "description": desc_m.group(1).strip() if desc_m else "",
-                            "tags": tags_m.group(1).strip() if tags_m else "",
-                            "script": clean_script_output(script_m.group(1)) if script_m else "",
-                            "scenes": scenes
-                        }
-                        parsed.append(sd)
-                        all_sc[sn] = scenes
-                    st.session_state["shorts_scripts"] = parsed
-                    st.session_state["shorts_scenes"] = all_sc
-                    if longform_link:
-                        for sd in parsed:
-                            summary = sd["script"][:80] if sd["script"] else sd["title"]
-                            st.session_state["pinned_comments"][sd["num"]] = f"{summary}...\n더 자세한 이야기가 궁금하다면 여기서 확인하세요\n{longform_link}"
-                elif result:
+                result = safe_generate(prompt)
+                
+                if result.startswith("오류:"):
                     st.error(result)
+                else:
+                    st.session_state["topic_recommendations"] = result
+                    st.success("주제 추천 완료!")
+    
+    if st.session_state.get("topic_recommendations"):
+        st.subheader("추천 주제 목록")
+        rec_text = st.session_state["topic_recommendations"]
+        st.markdown(f"```\n{clean_special(rec_text)}\n```")
+        
+        topic_input = st.text_input(
+            "위 추천 중 사용할 주제를 입력하거나, 직접 주제를 작성하세요",
+            value=st.session_state.get("selected_topic", ""),
+            key="topic_input"
+        )
+        if st.button("이 주제로 결정", key="btn_set_topic"):
+            if topic_input.strip():
+                st.session_state["selected_topic"] = topic_input.strip()
+                st.success(f"주제가 결정되었습니다: {topic_input.strip()}")
+            else:
+                st.warning("주제를 입력해주세요.")
+    
+    if st.session_state.get("selected_topic"):
+        st.divider()
+        st.subheader("선택된 주제")
+        st.info(f"현재 주제: **{st.session_state['selected_topic']}**")
+        st.caption("이 주제로 Skywork에서 대본과 이미지를 생성한 후, 탭2와 탭3에서 입력해주세요.")
 
-    if st.session_state.get("shorts_scripts"):
-        for sd in st.session_state["shorts_scripts"]:
-            st.subheader(f"쇼츠 {sd['num']}편")
-            st.code(f"제목: {sd['title']}", language=None)
-            if sd["top_line1"] or sd["top_line2"]:
-                st.code(f"상단제목: {sd['top_line1']}\n{sd['top_line2']}", language=None)
-            st.code(f"설명글: {sd['description']}", language=None)
-            st.code(f"태그: {sd['tags']}", language=None)
-            st.write("순수 대본:")
-            st.code(sd["script"], language=None)
-            if sd["scenes"]:
-                with st.expander(f"장면 프롬프트 ({len(sd['scenes'])}개)"):
-                    for sc in sd["scenes"]:
-                        st.write(f"장면 {sc['scene_id']}")
-                        st.write(f"대사: {sc['dialogue']}")
-                        st.code(sc["prompt"], language=None)
-            if sd["num"] in st.session_state.get("pinned_comments",{}):
-                st.write("고정 댓글:")
-                st.code(st.session_state["pinned_comments"][sd["num"]], language=None)
-            st.divider()
-
-# ═══ 탭4: 이미지 생성 ═══
-with tab4:
-    st.header("이미지 생성 (Skywork AI)")
-    ref_path = st.session_state.get("reference_image_path","")
-    if ref_path and os.path.exists(ref_path):
-        st.success("주인공 레퍼런스 이미지: 적용됨")
+# ═══════════════════════════════════════════
+# 탭2: 대본 입력 (Skywork에서 가져온 대본 붙여넣기)
+# ═══════════════════════════════════════════
+with tab2:
+    st.header("대본 입력")
+    
+    if st.session_state.get("selected_topic"):
+        st.info(f"현재 주제: {st.session_state['selected_topic']}")
     else:
-        st.warning("주인공 레퍼런스 없음. 사이드바에서 업로드하면 주인공 장면에 자동 적용.")
-
-    img_tab_long, img_tab_shorts = st.tabs(["롱폼 이미지", "쇼츠 이미지"])
-
-    with img_tab_long:
-        st.subheader("롱폼 문장별 이미지 생성")
-        sentences = st.session_state.get("long_sentences", [])
-        if not sentences:
-            st.warning("먼저 탭2에서 롱폼 대본을 생성하세요.")
+        st.warning("탭1에서 먼저 주제를 선택해주세요.")
+    
+    st.caption("Skywork에서 생성한 대본을 아래에 붙여넣으세요. 문장 단위로 구분됩니다.")
+    
+    script_input = st.text_area(
+        "대본 전체 붙여넣기",
+        value=st.session_state.get("script_text", ""),
+        height=400,
+        placeholder="Skywork에서 생성한 순수 대본을 여기에 붙여넣으세요.\n\n마침표(.)로 끝나는 각 문장이 하나의 장면이 됩니다.",
+        key="script_textarea"
+    )
+    
+    if st.button("대본 저장 및 분석", key="btn_save_script", use_container_width=True):
+        if script_input.strip():
+            st.session_state["script_text"] = script_input.strip()
+            # 마침표 기준으로 문장 분리
+            raw_lines = re.split(r'(?<=[.?])\s*', script_input.strip())
+            lines = [l.strip() for l in raw_lines if l.strip() and len(l.strip()) > 2]
+            st.session_state["script_lines"] = lines
+            st.success(f"대본이 저장되었습니다. 총 {len(lines)}개 문장(장면)으로 분리됨.")
         else:
-            st.write(f"총 {len(sentences)}개 문장에 대한 이미지를 생성합니다.")
-            st.caption("먼저 문장별 이미지 프롬프트를 자동 생성한 뒤, 일괄 이미지를 생성합니다.")
+            st.warning("대본을 입력해주세요.")
+    
+    if st.session_state.get("script_lines"):
+        st.divider()
+        st.subheader(f"분리된 문장 ({len(st.session_state['script_lines'])}개)")
+        for i, line in enumerate(st.session_state["script_lines"]):
+            st.text(f"장면 {i+1:03d}: {line}")
+        
+        st.divider()
+        st.subheader("문장 수동 편집")
+        st.caption("필요 시 개별 문장을 수정할 수 있습니다.")
+        
+        edited_lines = []
+        for i, line in enumerate(st.session_state["script_lines"]):
+            edited = st.text_input(
+                f"장면 {i+1:03d}",
+                value=line,
+                key=f"edit_line_{i}"
+            )
+            edited_lines.append(edited)
+        
+        if st.button("수정사항 저장", key="btn_save_edits"):
+            st.session_state["script_lines"] = [l.strip() for l in edited_lines if l.strip()]
+            st.success("수정사항이 저장되었습니다.")
+            st.rerun()
 
-            if st.button("문장별 프롬프트 자동 생성", key="btn_long_prompts"):
-                prompts_all = []
-                batch_size = 30
-                total_batches = (len(sentences) + batch_size - 1) // batch_size
-                progress = st.progress(0)
+# ═══════════════════════════════════════════
+# 탭3: 이미지 업로드 (Skywork에서 가져온 이미지)
+# ═══════════════════════════════════════════
+with tab3:
+    st.header("이미지 업로드")
+    
+    num_lines = len(st.session_state.get("script_lines", []))
+    if num_lines == 0:
+        st.warning("탭2에서 먼저 대본을 입력하고 저장해주세요. 문장 수에 맞춰 이미지를 업로드합니다.")
+    else:
+        st.info(f"대본 문장 수: {num_lines}개 → 이미지 {num_lines}장이 필요합니다.")
+        st.caption("Skywork에서 생성한 이미지를 장면 번호 순서대로 업로드하세요.")
+        
+        # 일괄 업로드
+        st.subheader("일괄 업로드")
+        st.caption(f"이미지 파일 {num_lines}개를 한꺼번에 선택하세요. 파일명 순서대로 장면에 배정됩니다.")
+        
+        batch_upload = st.file_uploader(
+            "이미지 파일 선택 (복수 선택 가능)",
+            type=["png", "jpg", "jpeg", "webp"],
+            accept_multiple_files=True,
+            key="batch_img_upload"
+        )
+        
+        if batch_upload:
+            if st.button("업로드한 이미지 저장", key="btn_save_images", use_container_width=True):
+                uploaded = []
+                for f in sorted(batch_upload, key=lambda x: x.name):
+                    uploaded.append({
+                        "name": f.name,
+                        "bytes": f.getvalue(),
+                        "type": f.type,
+                    })
+                st.session_state["uploaded_images"] = uploaded
+                st.success(f"{len(uploaded)}개 이미지가 저장되었습니다.")
+                
+                if len(uploaded) < num_lines:
+                    st.warning(f"이미지 {len(uploaded)}개 < 문장 {num_lines}개. 부족한 장면은 마지막 이미지가 반복 사용됩니다.")
+                elif len(uploaded) > num_lines:
+                    st.warning(f"이미지 {len(uploaded)}개 > 문장 {num_lines}개. 초과 이미지는 무시됩니다.")
+        
+        # 저장된 이미지 미리보기
+        if st.session_state.get("uploaded_images"):
+            st.divider()
+            st.subheader("저장된 이미지 미리보기")
+            images = st.session_state["uploaded_images"]
+            cols_per_row = 4
+            for row_start in range(0, len(images), cols_per_row):
+                cols = st.columns(cols_per_row)
+                for j, col in enumerate(cols):
+                    idx = row_start + j
+                    if idx < len(images):
+                        with col:
+                            st.image(images[idx]["bytes"], caption=f"장면 {idx+1:03d}", width=180)
+                            if idx < num_lines:
+                                line_preview = st.session_state["script_lines"][idx]
+                                if len(line_preview) > 30:
+                                    line_preview = line_preview[:30] + "..."
+                                st.caption(line_preview)
 
-                for b in range(total_batches):
-                    batch = sentences[b*batch_size : (b+1)*batch_size]
-                    numbered = "\n".join([f"{b*batch_size+j+1}. {s}" for j, s in enumerate(batch)])
-                    prompt_req = f"""다음 한국어 대본 문장들에 대해 각각 이미지 프롬프트를 영어로 만들어주세요.
-
-규칙:
-- 각 프롬프트는 SD 2D anime style,로 시작
-- 각 프롬프트는 16:9 horizontal aspect ratio로 끝남
-- 문장 내용에 맞는 장면을 시각적으로 묘사
-- 한국적 배경과 분위기 반영
-- 한 줄에 하나씩 번호와 함께 출력
-- 번호. 프롬프트 형식으로만 출력
-
-문장들:
-{numbered}"""
-                    result = safe_generate(
-                        "이미지 프롬프트 전문가입니다. 번호와 프롬프트만 출력하세요.",
-                        prompt_req,
-                        max_tokens=4096
-                    )
-                    if result and not result.startswith("FAILED"):
-                        for line in result.strip().split('\n'):
-                            line = line.strip()
-                            m = re.match(r'\d+[\.\)]\s*(.+)', line)
-                            if m:
-                                prompts_all.append(m.group(1).strip())
-                    progress.progress((b+1)/total_batches)
-
-                if len(prompts_all) < len(sentences):
-                    for _ in range(len(sentences) - len(prompts_all)):
-                        prompts_all.append("SD 2D anime style, Korean cityscape, moody atmosphere, 16:9 horizontal aspect ratio")
-
-                st.session_state["long_prompts"] = prompts_all[:len(sentences)]
-                st.success(f"프롬프트 {len(st.session_state['long_prompts'])}개 생성 완료")
-
-            if st.session_state.get("long_prompts"):
-                with st.expander(f"프롬프트 목록 ({len(st.session_state['long_prompts'])}개)"):
-                    for i, p in enumerate(st.session_state["long_prompts"]):
-                        st.text(f"{i+1}. {p[:100]}...")
-
-                if st.button("롱폼 이미지 일괄 생성", key="btn_long_img_all"):
-                    prompts = st.session_state["long_prompts"]
-                    total = len(prompts)
-                    progress = st.progress(0)
-                    for i, p in enumerate(prompts):
-                        fname = f"long_{i+1:04d}.png"
-                        path = generate_image_skywork(p, fname)
-                        if path:
-                            st.session_state["gen_images_long"][f"long_{i+1}"] = path
-                            if (i+1) % 10 == 0:
-                                st.write(f"{i+1}/{total} 생성 완료")
-                        progress.progress((i+1)/total)
-                        time.sleep(0.5)
-                    st.success(f"롱폼 이미지 {len(st.session_state['gen_images_long'])}개 생성 완료")
-
-    with img_tab_shorts:
-        st.subheader("쇼츠 장면 이미지 일괄 생성")
-        if not st.session_state.get("shorts_scenes"):
-            st.warning("먼저 탭3에서 쇼츠 대본을 생성하세요.")
+# ═══════════════════════════════════════════
+# 탭4: 영상 변환
+# ═══════════════════════════════════════════
+with tab4:
+    st.header("영상 변환")
+    
+    images = st.session_state.get("uploaded_images", [])
+    lines = st.session_state.get("script_lines", [])
+    
+    if not images:
+        st.warning("탭3에서 먼저 이미지를 업로드해주세요.")
+    elif not lines:
+        st.warning("탭2에서 먼저 대본을 입력해주세요.")
+    else:
+        st.info(f"이미지 {len(images)}장 / 대본 {len(lines)}문장 준비됨")
+        
+        st.subheader("영상 변환 설정")
+        
+        col_v1, col_v2 = st.columns(2)
+        with col_v1:
+            scene_duration = st.slider("장면당 길이(초)", min_value=3, max_value=10, value=5, key="scene_dur")
+        with col_v2:
+            motion_type = st.selectbox("모션 유형", ["줌인", "줌아웃", "패닝", "정지"], key="motion_type")
+        
+        if not KIE_API_KEY:
+            st.warning("KIE API 키가 설정되지 않았습니다. 영상 변환 기능을 사용하려면 KIE_API_KEY를 Secrets에 추가하세요.")
+            st.divider()
+            st.subheader("대안: 수동 영상 변환")
+            st.caption("API 없이도 이미지와 대본을 다운로드하여 외부 툴에서 영상을 만들 수 있습니다.")
+            
+            # 이미지+대본 매칭 정보 다운로드
+            match_data = []
+            for i, line in enumerate(lines):
+                img_idx = min(i, len(images) - 1)
+                match_data.append({
+                    "scene": i + 1,
+                    "script": line,
+                    "image_file": images[img_idx]["name"],
+                    "duration_sec": scene_duration,
+                })
+            
+            match_json = json.dumps(match_data, ensure_ascii=False, indent=2)
+            st.download_button(
+                "장면 매칭 정보 다운로드 (JSON)",
+                data=match_json,
+                file_name="scene_matching.json",
+                mime="application/json",
+                use_container_width=True,
+            )
         else:
-            for sn, scenes in st.session_state["shorts_scenes"].items():
-                st.write(f"쇼츠 {sn}편: {len(scenes)}개 장면")
-            if st.button("쇼츠 이미지 일괄 생성", key="btn_shorts_img"):
-                total = sum(len(s) for s in st.session_state["shorts_scenes"].values())
+            if st.button("영상 변환 시작", key="btn_convert_video", use_container_width=True):
+                st.session_state["video_urls"] = []
                 progress = st.progress(0)
-                count = 0
-                for sn, scenes in st.session_state["shorts_scenes"].items():
-                    st.write(f"쇼츠 {sn}편 생성 중...")
-                    for sc in scenes:
-                        prompt = sc.get("prompt","")
-                        sid = sc.get("scene_id","0")
-                        fname = f"shorts_{sn}_{sid}.png"
-                        has_ref = "reference" in prompt.lower() or "main character" in prompt.lower()
-                        path = generate_image_skywork(prompt, fname,
-                                                      ref_image_path=ref_path if has_ref and ref_path else None)
-                        if path:
-                            sc["image_path"] = path
-                            st.session_state["gen_images_shorts"][f"s{sn}_{sid}"] = path
-                            st.image(path, caption=f"쇼츠{sn} 장면{sid}: {sc.get('dialogue','')[:20]}", width=180)
-                        count += 1
-                        progress.progress(count/total)
-                        time.sleep(1)
-                st.success("쇼츠 이미지 일괄 생성 완료")
+                status = st.empty()
+                
+                for i, line in enumerate(lines):
+                    img_idx = min(i, len(images) - 1)
+                    img_data = images[img_idx]["bytes"]
+                    img_b64 = base64.b64encode(img_data).decode("utf-8")
+                    
+                    status.text(f"장면 {i+1}/{len(lines)} 변환 중...")
+                    
+                    # KIE API 영상 변환 요청
+                    try:
+                        headers = {
+                            "Authorization": f"Bearer {KIE_API_KEY}",
+                            "Content-Type": "application/json",
+                        }
+                        payload = {
+                            "image": img_b64,
+                            "duration": scene_duration,
+                            "motion": motion_type,
+                        }
+                        resp = requests.post(
+                            "https://api.kie.ai/v1/video/generate",
+                            headers=headers,
+                            json=payload,
+                            timeout=120,
+                        )
+                        if resp.status_code == 200:
+                            result = resp.json()
+                            video_url = result.get("video_url", "")
+                            st.session_state["video_urls"].append(video_url)
+                        else:
+                            st.session_state["video_urls"].append(f"오류: {resp.status_code}")
+                    except Exception as e:
+                        st.session_state["video_urls"].append(f"오류: {str(e)}")
+                    
+                    progress.progress((i + 1) / len(lines))
+                
+                status.text("영상 변환 완료!")
+                st.success(f"{len(st.session_state['video_urls'])}개 장면 변환 완료")
+        
+        if st.session_state.get("video_urls"):
+            st.divider()
+            st.subheader("변환된 영상")
+            for i, url in enumerate(st.session_state["video_urls"]):
+                if url.startswith("오류"):
+                    st.error(f"장면 {i+1}: {url}")
+                else:
+                    st.video(url)
 
-# ═══ 탭5: 영상 생성 (Kling AI / KIE) ═══
+# ═══════════════════════════════════════════
+# 탭5: TTS 음성
+# ═══════════════════════════════════════════
 with tab5:
-    st.header("영상 생성 (Kling AI)")
-    if not KIE_API_KEY:
-        st.warning("KIE API 키가 설정되지 않았습니다.")
-
-    vid_create, vid_check = st.tabs(["영상 생성 요청", "상태 확인"])
-
-    with vid_create:
-        st.subheader("이미지를 영상으로 변환 (Kling 2.6)")
-        all_images = {}
-        for k, v in st.session_state.get("gen_images_long",{}).items():
-            all_images[f"롱폼_{k}"] = v
-        for k, v in st.session_state.get("gen_images_shorts",{}).items():
-            all_images[f"쇼츠_{k}"] = v
-
-        if not all_images:
-            st.info("먼저 탭4에서 이미지를 생성하세요.")
-        else:
-            selected = st.multiselect("변환할 이미지 선택", list(all_images.keys()), key="vid_select")
-            motion = st.text_input("카메라 모션 프롬프트", value="subtle cinematic camera movement, slow zoom in", key="motion_input")
-            dur = st.selectbox("영상 길이", ["5","10"], key="vid_dur")
-
-            if st.button("영상 생성 시작", key="btn_vid"):
-                for img_key in selected:
-                    img_path = all_images[img_key]
-                    with open(img_path, "rb") as f:
-                        img_b64 = base64.b64encode(f.read()).decode()
-                    img_url = f"data:image/png;base64,{img_b64}"
-                    task_id = kie_create_task(img_url, motion, dur)
-                    if task_id:
-                        st.session_state["kie_tasks"][img_key] = {"task_id": task_id, "status": "요청됨", "output": None}
-                        st.success(f"{img_key}: 작업 ID {task_id[:20]}...")
-                    else:
-                        st.error(f"{img_key}: 요청 실패")
-
-    with vid_check:
-        st.subheader("영상 생성 상태 확인")
-        if not st.session_state.get("kie_tasks"):
-            st.info("생성 요청한 작업이 없습니다.")
-        else:
-            if st.button("전체 상태 확인", key="btn_vid_check"):
-                for key, task in st.session_state["kie_tasks"].items():
-                    s, o = kie_check_task(task["task_id"])
-                    if s:
-                        task["status"] = s
-                    if o:
-                        task["output"] = o
-            for key, task in st.session_state["kie_tasks"].items():
-                c1, c2, c3 = st.columns([3,2,2])
-                with c1:
-                    st.write(key)
-                with c2:
-                    st.write(f"상태: {task['status']}")
-                with c3:
-                    if task.get("output"):
-                        st.markdown(f"[다운로드]({task['output']})")
-# ═══ 탭6: TTS (Inworld) ═══
-with tab6:
-    st.header("TTS 음성 생성 (Inworld)")
-    if not INWORLD_API_KEY:
-        st.warning("Inworld API 키가 설정되지 않았습니다.")
-
-    tts_long, tts_shorts = st.tabs(["롱폼 TTS", "쇼츠 TTS"])
-
-    with tts_long:
-        st.subheader("롱폼 대본 음성 생성")
-        voice_sel = st.selectbox("목소리 선택", list(VOICE_OPTIONS.keys()), key="tts_voice_long")
-        speed = st.slider("속도", 0.5, 2.0, 1.0, 0.1, key="tts_speed_long")
-        temp = st.slider("자연스러움", 0.0, 1.0, 0.5, 0.1, key="tts_temp_long")
-
-        if st.button("롱폼 TTS 생성", key="btn_tts_long"):
-            script = st.session_state.get("full_script","")
-            if not script:
-                st.error("먼저 롱폼 대본을 생성하세요.")
+    st.header("TTS 음성 생성")
+    
+    lines = st.session_state.get("script_lines", [])
+    if not lines:
+        st.warning("탭2에서 먼저 대본을 입력해주세요.")
+    else:
+        st.info(f"대본 {len(lines)}문장에 대해 음성을 생성합니다.")
+        
+        selected_voice = st.selectbox(
+            "음성 선택",
+            list(VOICE_OPTIONS.keys()),
+            key="voice_select"
+        )
+        
+        voice_info = VOICE_OPTIONS[selected_voice]
+        
+        # 미리듣기
+        st.subheader("미리듣기")
+        preview_line_idx = st.selectbox(
+            "미리들을 문장 선택",
+            [f"장면 {i+1}: {line[:40]}..." if len(line) > 40 else f"장면 {i+1}: {line}" for i, line in enumerate(lines)],
+            key="preview_select"
+        )
+        preview_idx = int(preview_line_idx.split(":")[0].replace("장면 ", "").strip()) - 1
+        
+        if st.button("미리듣기", key="btn_preview_tts"):
+            if not INWORLD_API_KEY:
+                st.warning("Inworld API 키가 없습니다. INWORLD_API_KEY를 Secrets에 추가하세요.")
             else:
                 with st.spinner("음성 생성 중..."):
-                    vi = VOICE_OPTIONS[voice_sel]
-                    audio = inworld_tts(script, vi["id"], speed, temp, vi["lang"])
-                    if audio:
-                        os.makedirs("tts_output", exist_ok=True)
-                        apath = os.path.join("tts_output","longform_tts.mp3")
-                        with open(apath,"wb") as f:
-                            f.write(audio)
-                        st.session_state["tts_audio_long"] = apath
-                        st.audio(audio, format="audio/mp3")
-                        st.success("TTS 생성 완료")
-                        sents = [s.strip() for s in script.split('.') if s.strip()]
-                        srt = generate_srt(sents)
-                        st.download_button("SRT 자막 다운로드", srt, "longform.srt", key="dl_srt_l")
-                        st.download_button("MP3 다운로드", audio, "longform_tts.mp3", key="dl_mp3_l")
-                    else:
-                        st.error("TTS 생성 실패")
+                    try:
+                        headers = {
+                            "Authorization": f"Bearer {INWORLD_API_KEY}",
+                            "Content-Type": "application/json",
+                        }
+                        payload = {
+                            "text": lines[preview_idx],
+                            "voice_id": voice_info["voice_id"],
+                            "language": voice_info["lang"],
+                        }
+                        resp = requests.post(
+                            "https://api.inworld.ai/v1/tts/synthesize",
+                            headers=headers,
+                            json=payload,
+                            timeout=30,
+                        )
+                        if resp.status_code == 200:
+                            st.audio(resp.content, format="audio/mp3")
+                        else:
+                            st.error(f"TTS 오류: {resp.status_code} - {resp.text[:200]}")
+                    except Exception as e:
+                        st.error(f"TTS 오류: {str(e)}")
+        
+        st.divider()
+        
+        # 전체 생성
+        if st.button("전체 음성 생성", key="btn_full_tts", use_container_width=True):
+            if not INWORLD_API_KEY:
+                st.warning("Inworld API 키가 없습니다.")
+            else:
+                st.session_state["tts_audio_bytes"] = []
+                progress = st.progress(0)
+                status = st.empty()
+                
+                for i, line in enumerate(lines):
+                    status.text(f"장면 {i+1}/{len(lines)} 음성 생성 중...")
+                    try:
+                        headers = {
+                            "Authorization": f"Bearer {INWORLD_API_KEY}",
+                            "Content-Type": "application/json",
+                        }
+                        payload = {
+                            "text": line,
+                            "voice_id": voice_info["voice_id"],
+                            "language": voice_info["lang"],
+                        }
+                        resp = requests.post(
+                            "https://api.inworld.ai/v1/tts/synthesize",
+                            headers=headers,
+                            json=payload,
+                            timeout=30,
+                        )
+                        if resp.status_code == 200:
+                            st.session_state["tts_audio_bytes"].append(resp.content)
+                        else:
+                            st.session_state["tts_audio_bytes"].append(None)
+                            st.warning(f"장면 {i+1} TTS 실패: {resp.status_code}")
+                    except Exception as e:
+                        st.session_state["tts_audio_bytes"].append(None)
+                        st.warning(f"장면 {i+1} TTS 오류: {str(e)}")
+                    
+                    progress.progress((i + 1) / len(lines))
+                
+                status.text("전체 음성 생성 완료!")
+                success_count = sum(1 for a in st.session_state["tts_audio_bytes"] if a is not None)
+                st.success(f"음성 생성 완료: {success_count}/{len(lines)}")
+        
+        if st.session_state.get("tts_audio_bytes"):
+            st.divider()
+            st.subheader("생성된 음성")
+            for i, audio in enumerate(st.session_state["tts_audio_bytes"]):
+                if audio:
+                    st.caption(f"장면 {i+1}: {lines[i][:50]}")
+                    st.audio(audio, format="audio/mp3")
+                    st.download_button(
+                        f"장면 {i+1} 다운로드",
+                        data=audio,
+                        file_name=f"tts_scene_{i+1:03d}.mp3",
+                        mime="audio/mp3",
+                        key=f"dl_tts_{i}"
+                    )
 
-    with tts_shorts:
-        st.subheader("쇼츠 대본 음성 생성")
-        voice_sel_s = st.selectbox("목소리 선택", list(VOICE_OPTIONS.keys()), key="tts_voice_shorts")
-        speed_s = st.slider("속도", 0.5, 2.0, 1.1, 0.1, key="tts_speed_shorts")
-        temp_s = st.slider("자연스러움", 0.0, 1.0, 0.5, 0.1, key="tts_temp_shorts")
-
-        if not st.session_state.get("shorts_scripts"):
-            st.info("먼저 쇼츠 대본을 생성하세요.")
-        else:
-            if st.button("쇼츠 전체 TTS 생성", key="btn_tts_shorts"):
-                vi_s = VOICE_OPTIONS[voice_sel_s]
-                for sd in st.session_state["shorts_scripts"]:
-                    script = sd.get("script","")
-                    if not script:
-                        continue
-                    st.write(f"쇼츠 {sd['num']}편 TTS 생성 중...")
-                    audio = inworld_tts(script, vi_s["id"], speed_s, temp_s, vi_s["lang"])
-                    if audio:
-                        os.makedirs("tts_output", exist_ok=True)
-                        path = os.path.join("tts_output",f"shorts_{sd['num']}_tts.mp3")
-                        with open(path,"wb") as f:
-                            f.write(audio)
-                        st.session_state["tts_audio_shorts"][sd["num"]] = path
-                        st.audio(audio, format="audio/mp3")
-                        st.success(f"쇼츠 {sd['num']}편 완료")
-                    else:
-                        st.error(f"쇼츠 {sd['num']}편 실패")
-
-# ═══ 탭7: 자막 스타일 ═══
-with tab7:
+# ═══════════════════════════════════════════
+# 탭6: 자막 스타일
+# ═══════════════════════════════════════════
+with tab6:
     st.header("자막 스타일 설정")
-
-    sub_long, sub_shorts = st.tabs(["롱폼", "쇼츠"])
-
-    pos_base_opts = ["하단 중앙", "하단 좌측", "하단 우측", "중앙", "상단 중앙", "상단 좌측", "상단 우측"]
-    pos_base_map = {
-        "하단 중앙": "bottom-center", "하단 좌측": "bottom-left", "하단 우측": "bottom-right",
-        "중앙": "center", "상단 중앙": "top-center", "상단 좌측": "top-left", "상단 우측": "top-right",
-    }
-    pos_base_reverse = {v: k for k, v in pos_base_map.items()}
-    pos_css_map = {
-        "하단 중앙": ("center", "flex-end"), "하단 좌측": ("flex-start", "flex-end"),
-        "하단 우측": ("flex-end", "flex-end"), "중앙": ("center", "center"),
-        "상단 중앙": ("center", "flex-start"), "상단 좌측": ("flex-start", "flex-start"),
-        "상단 우측": ("flex-end", "flex-start"),
-    }
-
-    with sub_long:
+    
+    sub_tab_long, sub_tab_shorts = st.tabs(["롱폼 자막", "쇼츠 자막"])
+    
+    # ─── 롱폼 자막 ───
+    with sub_tab_long:
         st.subheader("롱폼 자막 스타일")
-        col_setting, col_preview = st.columns([1, 1])
-
-        with col_setting:
-            reverse_map = {v: k for k, v in FONT_MAP.items()}
-            cur_font_eng_l = st.session_state["subtitle_style_long"].get("font", "NotoSansKR-Bold")
-            cur_font_kr_l = reverse_map.get(cur_font_eng_l, FONT_LIST[0])
-            idx_l = FONT_LIST.index(cur_font_kr_l) if cur_font_kr_l in FONT_LIST else 0
-            lf = st.selectbox("글씨체", FONT_LIST, index=idx_l, key="sub_font_long")
-            ls = st.slider("글자 크기", 20, 100, st.session_state["subtitle_style_long"].get("size", 48), key="sub_size_long")
-            c1, c2 = st.columns(2)
-            with c1:
-                lc = st.color_picker("글자 색상", st.session_state["subtitle_style_long"].get("color", "#FFFFFF"), key="sub_color_long")
-            with c2:
-                loc = st.color_picker("외곽선 색상", st.session_state["subtitle_style_long"].get("outline_color", "#000000"), key="sub_oc_long")
-            low = st.slider("외곽선 두께", 0, 10, st.session_state["subtitle_style_long"].get("outline_width", 3), key="sub_ow_long")
-            lbo = st.slider("배경 투명도", 0.0, 1.0, st.session_state["subtitle_style_long"].get("bg_opacity", 0.0), 0.05, key="sub_bo_long")
-            st.markdown("---")
-            st.markdown("**위치 미세조정**")
-            cur_pos_eng_l = st.session_state["subtitle_style_long"].get("position", "bottom-center")
-            cur_pos_kr_l = pos_base_reverse.get(cur_pos_eng_l, "하단 중앙")
-            lp = st.selectbox("기본 위치", pos_base_opts, index=pos_base_opts.index(cur_pos_kr_l) if cur_pos_kr_l in pos_base_opts else 0, key="sub_pos_long")
-            p1, p2 = st.columns(2)
-            with p1:
-                l_offset_x = st.slider("좌우 미세조정", -200, 200, st.session_state["subtitle_style_long"].get("offset_x", 0), 5, key="sub_ox_long")
-            with p2:
-                l_offset_y = st.slider("상하 미세조정", -200, 200, st.session_state["subtitle_style_long"].get("offset_y", 0), 5, key="sub_oy_long")
-
-        st.session_state["subtitle_style_long"] = {
-            "font": FONT_MAP.get(lf, "NotoSansKR-Bold"), "font_kr": lf, "size": ls,
-            "color": lc, "outline_color": loc, "outline_width": low,
-            "position": pos_base_map.get(lp, "bottom-center"), "position_kr": lp,
-            "offset_x": l_offset_x, "offset_y": l_offset_y, "bg_opacity": lbo,
-        }
-
-        with col_preview:
-            st.markdown("**미리보기**")
-            justify, align = pos_css_map.get(lp, ("center", "flex-end"))
-            shadow_l = f"-{low}px -{low}px 0 {loc},{low}px -{low}px 0 {loc},-{low}px {low}px 0 {loc},{low}px {low}px 0 {loc}"
-            preview_l = f"""
-            <div style="width:100%;height:400px;background:linear-gradient(135deg,#1a1a2e,#16213e,#0f3460);
-                border-radius:12px;display:flex;justify-content:{justify};align-items:{align};
-                padding:20px;position:relative;overflow:hidden;">
-                <div style="background:rgba(0,0,0,{lbo});padding:12px 24px;border-radius:6px;
-                    transform:translate({l_offset_x}px,{l_offset_y}px);z-index:1;">
-                    <span style="font-size:{ls}px;color:{lc};text-shadow:{shadow_l};
-                        font-weight:bold;white-space:nowrap;">시니어 콘텐츠 팩토리</span>
+        
+        col_set, col_prev = st.columns([1, 1])
+        
+        with col_set:
+            sl = st.session_state["subtitle_style_long"]
+            
+            sl["font"] = st.selectbox("글꼴", FONT_LIST, 
+                index=FONT_LIST.index(sl["font"]) if sl["font"] in FONT_LIST else 0,
+                key="long_font")
+            sl["size"] = st.slider("크기", 16, 60, sl["size"], key="long_size")
+            sl["color"] = st.color_picker("글자 색상", sl["color"], key="long_color")
+            sl["outline_color"] = st.color_picker("외곽선 색상", sl["outline_color"], key="long_outline_color")
+            sl["outline_width"] = st.slider("외곽선 두께", 0, 5, sl["outline_width"], key="long_outline_w")
+            sl["position"] = st.selectbox("위치", ["상단", "중앙", "하단"],
+                index=["상단", "중앙", "하단"].index(sl["position"]),
+                key="long_pos")
+            sl["bg_opacity"] = st.slider("배경 투명도", 0.0, 1.0, sl["bg_opacity"], 0.1, key="long_bg")
+            
+            st.caption("미세 조정 오프셋 (픽셀)")
+            oc1, oc2 = st.columns(2)
+            with oc1:
+                sl["offset_up"] = st.number_input("위로", 0, 200, sl["offset_up"], key="long_off_up")
+                sl["offset_left"] = st.number_input("왼쪽으로", 0, 200, sl["offset_left"], key="long_off_left")
+            with oc2:
+                sl["offset_down"] = st.number_input("아래로", 0, 200, sl["offset_down"], key="long_off_down")
+                sl["offset_right"] = st.number_input("오른쪽으로", 0, 200, sl["offset_right"], key="long_off_right")
+        
+        with col_prev:
+            st.caption("미리보기")
+            pos_map = {"상단": "top:15%", "중앙": "top:50%", "하단": "bottom:15%"}
+            pos_css = pos_map.get(sl["position"], "bottom:15%")
+            bg_rgba = f"rgba(0,0,0,{sl['bg_opacity']})"
+            preview_html = f"""
+            <div style="position:relative; width:320px; height:180px; background:#222; border-radius:8px; overflow:hidden;">
+                <div style="position:absolute; {pos_css}; left:50%; transform:translateX(-50%);
+                    font-family:'{FONT_MAP.get(sl['font'], 'sans-serif')}', sans-serif;
+                    font-size:{sl['size']//2}px; color:{sl['color']};
+                    text-shadow: {sl['outline_width']}px {sl['outline_width']}px 0 {sl['outline_color']},
+                    -{sl['outline_width']}px -{sl['outline_width']}px 0 {sl['outline_color']};
+                    background:{bg_rgba}; padding:4px 12px; border-radius:4px;
+                    white-space:nowrap;">
+                    롱폼 자막 미리보기
                 </div>
-            </div>"""
-            st.markdown(preview_l, unsafe_allow_html=True)
-            st.caption(f"글씨체: {lf} | 크기: {ls}px | 위치: {lp} | 좌우: {l_offset_x}px | 상하: {l_offset_y}px")
-
-    with sub_shorts:
+            </div>
+            """
+            st.markdown(preview_html, unsafe_allow_html=True)
+    
+    # ─── 쇼츠 자막 ───
+    with sub_tab_shorts:
         st.subheader("쇼츠 자막 스타일")
-        col_setting_s, col_preview_s = st.columns([1, 1])
-
-        with col_setting_s:
-            reverse_map_s = {v: k for k, v in FONT_MAP.items()}
-            cur_font_eng_s = st.session_state["subtitle_style_shorts"].get("font", "NotoSansKR-Bold")
-            cur_font_kr_s = reverse_map_s.get(cur_font_eng_s, FONT_LIST[0])
-            idx_s = FONT_LIST.index(cur_font_kr_s) if cur_font_kr_s in FONT_LIST else 0
-            sf = st.selectbox("글씨체", FONT_LIST, index=idx_s, key="sub_font_shorts")
-            ss_size = st.slider("글자 크기", 20, 120, st.session_state["subtitle_style_shorts"].get("size", 52), key="sub_size_shorts")
-            c3, c4 = st.columns(2)
-            with c3:
-                sc_c = st.color_picker("글자 색상", st.session_state["subtitle_style_shorts"].get("color", "#FFFF00"), key="sub_color_shorts")
-            with c4:
-                soc = st.color_picker("외곽선 색상", st.session_state["subtitle_style_shorts"].get("outline_color", "#000000"), key="sub_oc_shorts")
-            sow = st.slider("외곽선 두께", 0, 10, st.session_state["subtitle_style_shorts"].get("outline_width", 4), key="sub_ow_shorts")
-            sbo = st.slider("배경 투명도", 0.0, 1.0, st.session_state["subtitle_style_shorts"].get("bg_opacity", 0.5), 0.05, key="sub_bo_shorts")
-            st.markdown("---")
-            st.markdown("**위치 미세조정**")
-            cur_pos_eng_s = st.session_state["subtitle_style_shorts"].get("position", "center")
-            cur_pos_kr_s = pos_base_reverse.get(cur_pos_eng_s, "중앙")
-            sp = st.selectbox("기본 위치", pos_base_opts, index=pos_base_opts.index(cur_pos_kr_s) if cur_pos_kr_s in pos_base_opts else 3, key="sub_pos_shorts")
-            p3, p4 = st.columns(2)
-            with p3:
-                s_offset_x = st.slider("좌우 미세조정", -200, 200, st.session_state["subtitle_style_shorts"].get("offset_x", 0), 5, key="sub_ox_shorts")
-            with p4:
-                s_offset_y = st.slider("상하 미세조정", -200, 200, st.session_state["subtitle_style_shorts"].get("offset_y", 0), 5, key="sub_oy_shorts")
-
-        st.session_state["subtitle_style_shorts"] = {
-            "font": FONT_MAP.get(sf, "NotoSansKR-Bold"), "font_kr": sf, "size": ss_size,
-            "color": sc_c, "outline_color": soc, "outline_width": sow,
-            "position": pos_base_map.get(sp, "center"), "position_kr": sp,
-            "offset_x": s_offset_x, "offset_y": s_offset_y, "bg_opacity": sbo,
-        }
-
-        with col_preview_s:
-            st.markdown("**미리보기**")
-            justify_s, align_s = pos_css_map.get(sp, ("center", "center"))
-            shadow_s = f"-{sow}px -{sow}px 0 {soc},{sow}px -{sow}px 0 {soc},-{sow}px {sow}px 0 {soc},{sow}px {sow}px 0 {soc}"
-            preview_s = f"""
-            <div style="width:225px;height:400px;background:linear-gradient(135deg,#0f0f23,#1a0a2e,#2d1b69);
-                border-radius:12px;display:flex;justify-content:{justify_s};align-items:{align_s};
-                padding:15px;position:relative;overflow:hidden;margin:0 auto;">
-                <div style="background:rgba(0,0,0,{sbo});padding:8px 16px;border-radius:6px;
-                    transform:translate({s_offset_x}px,{s_offset_y}px);z-index:1;">
-                    <span style="font-size:{ss_size}px;color:{sc_c};text-shadow:{shadow_s};
-                        font-weight:bold;white-space:nowrap;">쇼츠 자막</span>
+        
+        col_set2, col_prev2 = st.columns([1, 1])
+        
+        with col_set2:
+            ss = st.session_state["subtitle_style_shorts"]
+            
+            ss["font"] = st.selectbox("글꼴", FONT_LIST,
+                index=FONT_LIST.index(ss["font"]) if ss["font"] in FONT_LIST else 0,
+                key="shorts_font")
+            ss["size"] = st.slider("크기", 16, 72, ss["size"], key="shorts_size")
+            ss["color"] = st.color_picker("글자 색상", ss["color"], key="shorts_color")
+            ss["outline_color"] = st.color_picker("외곽선 색상", ss["outline_color"], key="shorts_outline_color")
+            ss["outline_width"] = st.slider("외곽선 두께", 0, 6, ss["outline_width"], key="shorts_outline_w")
+            ss["position"] = st.selectbox("위치", ["상단", "중앙", "하단"],
+                index=["상단", "중앙", "하단"].index(ss["position"]),
+                key="shorts_pos")
+            ss["bg_opacity"] = st.slider("배경 투명도", 0.0, 1.0, ss["bg_opacity"], 0.1, key="shorts_bg")
+            
+            st.caption("미세 조정 오프셋 (픽셀)")
+            oc3, oc4 = st.columns(2)
+            with oc3:
+                ss["offset_up"] = st.number_input("위로", 0, 200, ss["offset_up"], key="shorts_off_up")
+                ss["offset_left"] = st.number_input("왼쪽으로", 0, 200, ss["offset_left"], key="shorts_off_left")
+            with oc4:
+                ss["offset_down"] = st.number_input("아래로", 0, 200, ss["offset_down"], key="shorts_off_down")
+                ss["offset_right"] = st.number_input("오른쪽으로", 0, 200, ss["offset_right"], key="shorts_off_right")
+        
+        with col_prev2:
+            st.caption("미리보기 (9:16 비율)")
+            pos_css2 = pos_map.get(ss["position"], "bottom:15%")
+            bg_rgba2 = f"rgba(0,0,0,{ss['bg_opacity']})"
+            preview_html2 = f"""
+            <div style="position:relative; width:180px; height:320px; background:#111; border-radius:8px; overflow:hidden;">
+                <div style="position:absolute; {pos_css2}; left:50%; transform:translateX(-50%);
+                    font-family:'{FONT_MAP.get(ss['font'], 'sans-serif')}', sans-serif;
+                    font-size:{ss['size']//2}px; color:{ss['color']};
+                    text-shadow: {ss['outline_width']}px {ss['outline_width']}px 0 {ss['outline_color']},
+                    -{ss['outline_width']}px -{ss['outline_width']}px 0 {ss['outline_color']};
+                    background:{bg_rgba2}; padding:4px 12px; border-radius:4px;
+                    white-space:nowrap;">
+                    쇼츠 자막
                 </div>
-            </div>"""
-            st.markdown(preview_s, unsafe_allow_html=True)
-            st.caption(f"글씨체: {sf} | 크기: {ss_size}px | 위치: {sp} | 좌우: {s_offset_x}px | 상하: {s_offset_y}px")
-
+            </div>
+            """
+            st.markdown(preview_html2, unsafe_allow_html=True)
+    
+    # JSON 내보내기
     st.divider()
-    if st.button("자막 스타일 내보내기", key="btn_export_sub"):
-        export = {"롱폼": st.session_state["subtitle_style_long"], "쇼츠": st.session_state["subtitle_style_shorts"]}
-        j = json.dumps(export, ensure_ascii=False, indent=2)
-        st.code(j, language="json")
-        st.download_button("스타일 파일 다운로드", j, "subtitle_styles.json", mime="application/json", key="dl_sub_json")
+    if st.button("자막 스타일 JSON 내보내기", key="btn_export_sub", use_container_width=True):
+        export_data = {
+            "long_form": st.session_state["subtitle_style_long"],
+            "shorts": st.session_state["subtitle_style_shorts"],
+            "long_form_font_file": FONT_MAP.get(st.session_state["subtitle_style_long"]["font"], ""),
+            "shorts_font_file": FONT_MAP.get(st.session_state["subtitle_style_shorts"]["font"], ""),
+        }
+        export_json = json.dumps(export_data, ensure_ascii=False, indent=2)
+        st.download_button(
+            "다운로드",
+            data=export_json,
+            file_name="subtitle_styles.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+        st.code(export_json, language="json")
 
-# ═══ 탭8: 최종 합치기 ═══
-with tab8:
+# ═══════════════════════════════════════════
+# 탭7: 최종 합치기
+# ═══════════════════════════════════════════
+with tab7:
     st.header("최종 합치기")
-
-    st.subheader("완료 체크리스트")
-    checks = {
+    
+    lines = st.session_state.get("script_lines", [])
+    images = st.session_state.get("uploaded_images", [])
+    videos = st.session_state.get("video_urls", [])
+    audios = st.session_state.get("tts_audio_bytes", [])
+    
+    # 진행 상황 요약
+    st.subheader("진행 상황 요약")
+    
+    check_items = {
         "주제 선택": bool(st.session_state.get("selected_topic")),
-        "롱폼 대본": bool(st.session_state.get("full_script")),
-        "쇼츠 대본": bool(st.session_state.get("shorts_scripts")),
-        "레퍼런스 이미지": bool(st.session_state.get("reference_image_path")),
-        "롱폼 이미지": bool(st.session_state.get("gen_images_long")),
-        "쇼츠 이미지": bool(st.session_state.get("gen_images_shorts")),
-        "TTS 롱폼": bool(st.session_state.get("tts_audio_long")),
-        "TTS 쇼츠": bool(st.session_state.get("tts_audio_shorts")),
+        "대본 입력": len(lines) > 0,
+        "이미지 업로드": len(images) > 0,
+        "영상 변환": len(videos) > 0,
+        "TTS 음성": len(audios) > 0,
         "자막 스타일": True,
     }
-    for item, done in checks.items():
+    
+    for item, done in check_items.items():
         if done:
-            st.write(f"[O] {item} - 완료")
+            st.success(f"{item}: 완료")
         else:
-            st.write(f"[X] {item} - 미완료")
-
+            st.warning(f"{item}: 미완료")
+    
     st.divider()
-    st.subheader("FFmpeg 합성 명령어")
-    stl = st.session_state["subtitle_style_long"]
-    sts = st.session_state["subtitle_style_shorts"]
-
-    st.write("롱폼 영상 합성:")
-    st.code(f"""ffmpeg -framerate 1/5 -i generated_images/long_%04d.png \\
-  -i tts_output/longform_tts.mp3 \\
-  -vf "subtitles=tts_output/longform.srt:force_style='FontName={stl['font']},FontSize={stl['size']},PrimaryColour=&H00{stl['color'][1:]}&,OutlineColour=&H00{stl['outline_color'][1:]}&,Outline={stl['outline_width']},MarginV={stl.get('offset_y',0)},MarginL={stl.get('offset_x',0)},Alignment=2'" \\
-  -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest output/longform_final.mp4""", language="bash")
-
-    st.write("쇼츠 영상 합성:")
-    for i in range(1,4):
-        st.code(f"""ffmpeg -framerate 1/4 -i generated_images/shorts_{i}_%03d.png \\
-  -i tts_output/shorts_{i}_tts.mp3 \\
-  -vf "scale=720:1280,subtitles=tts_output/shorts_{i}.srt:force_style='FontName={sts['font']},FontSize={sts['size']},PrimaryColour=&H00{sts['color'][1:]}&,OutlineColour=&H00{sts['outline_color'][1:]}&,Outline={sts['outline_width']},MarginV={sts.get('offset_y',0)},MarginL={sts.get('offset_x',0)},Alignment=5'" \\
-  -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest output/shorts_{i}_final.mp4""", language="bash")
-
+    
+    # SRT 자막 다운로드
+    st.subheader("자막 파일 생성")
+    if lines:
+        scene_dur = st.session_state.get("scene_dur", 5)
+        durations = [scene_dur] * len(lines)
+        srt_content = generate_srt(lines, durations)
+        
+        st.download_button(
+            "SRT 자막 파일 다운로드",
+            data=srt_content,
+            file_name="subtitles.srt",
+            mime="text/plain",
+            use_container_width=True,
+        )
+        
+        with st.expander("SRT 미리보기"):
+            st.code(srt_content)
+    
     st.divider()
-    if st.button("전체 프로젝트 JSON 내보내기", key="btn_export_all"):
-        export = {
-            "주제": st.session_state.get("selected_topic",""),
-            "카테고리": st.session_state.get("selected_category",""),
-            "롱폼": {
-                "제목": st.session_state.get("long_title",""),
-                "태그": st.session_state.get("long_tags",""),
-                "설명": st.session_state.get("long_desc",""),
-                "대본": st.session_state.get("full_script",""),
-                "문장수": len(st.session_state.get("long_sentences",[])),
-                "이미지수": len(st.session_state.get("gen_images_long",{}))
-            },
-            "쇼츠": [
-                {"편": sd.get("num"), "제목": sd.get("title"), "대본": sd.get("script"), "장면수": len(sd.get("scenes",[]))}
-                for sd in st.session_state.get("shorts_scripts",[])
-            ],
-            "자막": {"롱폼": st.session_state.get("subtitle_style_long",{}), "쇼츠": st.session_state.get("subtitle_style_shorts",{})},
-            "고정댓글": {str(k): v for k, v in st.session_state.get("pinned_comments",{}).items()},
-            "롱폼링크": st.session_state.get("longform_link","")
+    
+    # 전체 프로젝트 JSON 내보내기
+    st.subheader("프로젝트 전체 내보내기")
+    st.caption("대본, 자막 스타일, 장면 매칭 정보를 하나의 JSON으로 내보냅니다. (이미지/음성 바이너리는 제외)")
+    
+    if st.button("프로젝트 JSON 생성", key="btn_export_project", use_container_width=True):
+        project = {
+            "created_at": datetime.now().isoformat(),
+            "topic": st.session_state.get("selected_topic", ""),
+            "content_type": st.session_state.get("content_type", "쇼츠"),
+            "total_scenes": len(lines),
+            "script_lines": lines,
+            "image_files": [img["name"] for img in images] if images else [],
+            "subtitle_style_long": st.session_state.get("subtitle_style_long", {}),
+            "subtitle_style_shorts": st.session_state.get("subtitle_style_shorts", {}),
+            "subtitle_style_long_font_file": FONT_MAP.get(
+                st.session_state.get("subtitle_style_long", {}).get("font", ""), ""
+            ),
+            "subtitle_style_shorts_font_file": FONT_MAP.get(
+                st.session_state.get("subtitle_style_shorts", {}).get("font", ""), ""
+            ),
+            "scene_duration_sec": st.session_state.get("scene_dur", 5),
+            "video_urls": videos,
+            "tts_generated": len([a for a in audios if a]) if audios else 0,
         }
-        j = json.dumps(export, ensure_ascii=False, indent=2)
-        st.code(j, language="json")
-        st.download_button("프로젝트 JSON 다운로드", j,
-                           f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
-                           mime="application/json", key="dl_project")
+        
+        project_json = json.dumps(project, ensure_ascii=False, indent=2)
+        
+        st.download_button(
+            "프로젝트 JSON 다운로드",
+            data=project_json,
+            file_name=f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+            mime="application/json",
+            use_container_width=True,
+        )
+        
+        with st.expander("프로젝트 JSON 미리보기"):
+            st.code(project_json, language="json")

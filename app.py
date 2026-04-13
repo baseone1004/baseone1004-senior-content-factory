@@ -142,7 +142,7 @@ def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
             "Authorization": f"Bearer {SKYWORK_API_KEY}",
             "Content-Type": "application/json"
         }
-        payload = {def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
+       def safe_generate(system_prompt, user_prompt, max_tokens=4096, temperature=0.7):
     if not GEMINI_API_KEY:
         return "FAILED - DO NOT RETRY: Gemini API 키가 설정되지 않았습니다."
     try:

@@ -268,14 +268,29 @@ for k, v in defaults.items():
 # ═══ 사이드바 ═══
 with st.sidebar:
     st.header("공통 설정")
+
     st.subheader("API 연결 상태")
-    st.success("Skywork API: 연결됨") if SKYWORK_API_KEY else st.error("Skywork API: 키 없음")
-    st.success("KIE API: 연결됨") if KIE_API_KEY else st.warning("KIE API: 키 없음 (영상생성 불가)")
-    st.success("Inworld API: 연결됨") if INWORLD_API_KEY else st.warning("Inworld API: 키 없음 (TTS 불가)")
+    if SKYWORK_API_KEY:
+        st.success("Skywork API: 연결됨")
+    else:
+        st.error("Skywork API: 키 없음")
+
+    if KIE_API_KEY:
+        st.success("KIE API: 연결됨")
+    else:
+        st.warning("KIE API: 키 없음 (영상생성 불가)")
+
+    if INWORLD_API_KEY:
+        st.success("Inworld API: 연결됨")
+    else:
+        st.warning("Inworld API: 키 없음 (TTS 불가)")
+
     st.divider()
+
     st.subheader("주인공 레퍼런스 이미지")
     st.caption("쇼츠 이미지 생성 시 주인공 얼굴을 일관되게 유지하기 위한 참조 이미지입니다.")
-    ref_img = st.file_uploader("이미지 업로드 (PNG/JPG)", type=["png","jpg","jpeg"], key="sidebar_ref")
+
+    ref_img = st.file_uploader("이미지 업로드 (PNG/JPG)", type=["png", "jpg", "jpeg"], key="sidebar_ref")
     if ref_img:
         os.makedirs("reference", exist_ok=True)
         ref_path = os.path.join("reference", "reference.png")
@@ -287,11 +302,14 @@ with st.sidebar:
         st.image(st.session_state["reference_image_path"], caption="현재 레퍼런스", use_container_width=True)
     else:
         st.info("아직 업로드된 이미지가 없습니다.")
+
     st.divider()
+
     if st.session_state.get("selected_topic"):
         st.subheader("현재 주제")
         st.write(st.session_state["selected_topic"])
         st.caption(st.session_state.get("selected_category", ""))
+
 
 # ═══ 메인 ═══
 st.title("시니어 콘텐츠 팩토리")

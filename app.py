@@ -130,11 +130,11 @@ def clean_special(text):
     return text.strip()
 
 def safe_generate(prompt, system_prompt="", max_tokens=4096):
-    """Gemini API를 사용한 텍스트 생성"""
+    """Gemini API를 사용한 텍스트 생성 (재시도 및 모델 폴백 포함)"""
     if not GEMINI_API_KEY:
         return "오류: GEMINI_API_KEY가 설정되지 않았습니다."
     
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
     
     parts = []
     if system_prompt:
@@ -149,25 +149,51 @@ def safe_generate(prompt, system_prompt="", max_tokens=4096):
         }
     }
     
-    try:
-        resp = requests.post(url, json=payload, timeout=60)
-        if resp.status_code != 200:
-            return f"오류: Gemini API 응답 {resp.status_code} - {resp.text[:200]}"
-        data = resp.json()
-        candidates = data.get("candidates", [])
-        if not candidates:
-            return "오류: Gemini API 응답에 결과가 없습니다."
-        content = candidates[0].get("content", {})
-        parts_out = content.get("parts", [])
-        if not parts_out:
-            return "오류: Gemini API 응답 파츠가 비어있습니다."
-        return parts_out[0].get("text", "")
-    except requests.exceptions.Timeout:
-        return "오류: Gemini API 시간 초과"
-    except requests.exceptions.ConnectionError:
-        return "오류: Gemini API 연결 실패"
-    except Exception as e:
-        return f"오류: {str(e)}"
+    last_error = ""
+    
+    for model in models:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={GEMINI_API_KEY}"
+        
+        for attempt in range(3):
+            try:
+                resp = requests.post(url, json=payload, timeout=60)
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    candidates = data.get("candidates", [])
+                    if candidates:
+                        content = candidates[0].get("content", {})
+                        parts_out = content.get("parts", [])
+                        if parts_out:
+                            return parts_out[0].get("text", "")
+                    return "오류: Gemini API 응답에 결과가 없습니다."
+                
+                elif resp.status_code == 429:
+                    last_error = f"할당량 초과 (모델: {model}, 시도: {attempt+1}/3)"
+                    wait_time = (attempt + 1) * 10
+                    time.sleep(wait_time)
+                    continue
+                
+                elif resp.status_code == 404:
+                    last_error = f"모델 없음 (모델: {model})"
+                    break
+                
+                else:
+                    last_error = f"Gemini API 응답 {resp.status_code} (모델: {model})"
+                    break
+                    
+            except requests.exceptions.Timeout:
+                last_error = f"시간 초과 (모델: {model})"
+                break
+            except requests.exceptions.ConnectionError:
+                last_error = f"연결 실패 (모델: {model})"
+                break
+            except Exception as e:
+                last_error = f"{str(e)} (모델: {model})"
+                break
+    
+    return f"오류: 모든 모델에서 실패했습니다. 마지막 오류: {last_error}. 1~2분 후 다시 시도하거나 aistudio.google.com/apikey 에서 새 키를 발급하세요."
+
 
 def generate_srt(lines, durations=None):
     """SRT 자막 파일 생성"""

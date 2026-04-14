@@ -105,22 +105,35 @@ for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
+# ═══════════════════════════════════════════
+# 유틸리티 함수 (반드시 이 순서대로)
+# ═══════════════════════════════════════════
+
+def clean_special(text):
+    if not text:
+        return ""
+    text = re.sub(r'[*#_~`>|{}\[\]]', '', text)
+    lines = text.split('\n')
+    cleaned = []
+    for line in lines:
+        line = line.strip()
+        if line:
+            cleaned.append(line)
+    return '\n'.join(cleaned)
+
+
 def clean_script(text):
     if not text:
         return ""
-    # 마크다운 볼드/이탤릭 제거
     text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
     text = re.sub(r'\*([^*]+)\*', r'\1', text)
-    # 기타 특수기호 제거
-    text = re.sub(r'[*#_~`>|{}[\]]', '', text)
-    # 빈 줄 정리
+    text = re.sub(r'[*#_~`>|{}\[\]]', '', text)
     lines = text.split('\n')
     cleaned = []
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        # 한 줄에 문장이 여러 개 붙어있으면 마침표 기준으로 분리
         sentences = re.split(r'(?<=[.?])\s+', line)
         for s in sentences:
             s = s.strip()
@@ -181,6 +194,7 @@ def safe_generate(prompt, system_prompt="", max_tokens=4096):
                 break
     return f"오류: 모든 모델에서 실패했습니다. 마지막 오류: {last_error}"
 
+
 def generate_srt(lines, durations=None):
     srt = ""
     current_time = 0.0
@@ -201,6 +215,10 @@ def generate_srt(lines, durations=None):
         current_time = end_time
     return srt
 
+
+# ═══════════════════════════════════════════
+# 사이드바
+# ═══════════════════════════════════════════
 with st.sidebar:
     st.header("설정")
     st.subheader("API 연결 상태")
@@ -353,10 +371,8 @@ with tab1:
         st.subheader("추천 주제 TOP 10")
 
         raw = st.session_state["topic_recommendations"]
-        # 마크다운 코드블록 제거
         cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
         json_match = re.search(r'\[.*\]', cleaned_raw, re.DOTALL)
-
 
         topics_parsed = None
         if json_match:
@@ -567,7 +583,6 @@ with tab2:
                             st.session_state["auto_script_result"] = clean_script(result)
                             st.success("쇼츠 대본 생성 완료!")
 
-
                 else:
                     total_parts = dur["parts"]
                     all_parts = []
@@ -619,17 +634,7 @@ with tab2:
 - 문단으로 묶지 않는다. 모든 문장은 독립된 한 줄로 작성한다.
 - 마크다운 볼드(**) 이탤릭(*) 헤더(#) 등 특수 서식 절대 금지.
 - 편 번호, 대사 번호, 소제목, 주석, 괄호 설명 일체 금지.
-- 오직 순수 대본 문장만 한 줄에 하나씩 출력한다.
-
-올바른 출력 예시:
-우리나라 금융권의 부실 채권이 백조 원에 육박하고 있습니다.
-이 수치는 단순한 경고가 아닙니다.
-근데 더 심각한 건 따로 있습니다.
-
-잘못된 출력 예시:
-우리나라 금융권의 부실 채권이 백조 원에 육박하고 있습니다. 이 수치는 단순한 경고가 아닙니다. 근데 더 심각한 건 따로 있습니다.
-**근데** 더 심각한 건 따로 있습니다."""
-
+- 오직 순수 대본 문장만 한 줄에 하나씩 출력한다."""
 
                         else:
                             prev_last = "\n".join(all_parts[-1].split("\n")[-5:]) if all_parts else ""
@@ -676,17 +681,7 @@ with tab2:
 - 문단으로 묶지 않는다. 모든 문장은 독립된 한 줄로 작성한다.
 - 마크다운 볼드(**) 이탤릭(*) 헤더(#) 등 특수 서식 절대 금지.
 - 편 번호, 대사 번호, 소제목, 주석, 괄호 설명 일체 금지.
-- 오직 순수 대본 문장만 한 줄에 하나씩 출력한다.
-
-올바른 출력 예시:
-우리나라 금융권의 부실 채권이 백조 원에 육박하고 있습니다.
-이 수치는 단순한 경고가 아닙니다.
-근데 더 심각한 건 따로 있습니다.
-
-잘못된 출력 예시:
-우리나라 금융권의 부실 채권이 백조 원에 육박하고 있습니다. 이 수치는 단순한 경고가 아닙니다. 근데 더 심각한 건 따로 있습니다.
-**근데** 더 심각한 건 따로 있습니다."""
-
+- 오직 순수 대본 문장만 한 줄에 하나씩 출력한다."""
 
                         result = safe_generate(pp, max_tokens=8000)
 
@@ -695,7 +690,6 @@ with tab2:
                             break
                         else:
                             all_parts.append(clean_script(result))
-
 
                         progress.progress((p + 1) / total_parts)
 
@@ -810,7 +804,6 @@ with tab2:
                 st.session_state["script_lines"] = [l.strip() for l in edited_lines if l.strip()]
                 st.success("수정사항 저장됨.")
                 st.rerun()
-
 
 # ═══════════════════════════════════════════
 # 탭3: 이미지 업로드

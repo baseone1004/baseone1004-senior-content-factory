@@ -482,20 +482,18 @@ with tab2:
                 "30분 분량", "45분 분량", "1시간 분량"
             ], key="duration_select")
 
-                duration_map = {
-            "30분 분량": {"minutes": 30, "sentences": "250~300", "words": "약 12000자", "parts": 6},
-            "45분 분량": {"minutes": 45, "sentences": "380~450", "words": "약 18000자", "parts": 9},
-            "1시간 분량": {"minutes": 60, "sentences": "500~600", "words": "약 24000자", "parts": 12},
+        dur_map = {
+            "30분 분량": {"minutes": 30, "label": "250~300문장 / 약 12000자", "parts": 6},
+            "45분 분량": {"minutes": 45, "label": "380~450문장 / 약 18000자", "parts": 9},
+            "1시간 분량": {"minutes": 60, "label": "500~600문장 / 약 24000자", "parts": 12},
         }
-
-        dur_info = duration_map.get(duration, duration_map["30분 분량"])
+        dur = dur_map.get(duration, dur_map["30분 분량"])
 
         st.markdown(
             f"""<div style="background:#1a1a2e; border:1px solid #444; border-radius:8px; padding:10px; margin:8px 0;">
                 <span style="color:#AAAAAA; font-size:13px;">예상 분량:</span>
-                <span style="color:#FFFFFF; font-size:14px; margin-left:6px;">{dur_info['minutes']}분 / {dur_info['sentences']}문장 / {dur_info['words']}</span>
-                <span style="color:#FF8888; font-size:12px;">긴 대본은 {dur_info['parts']}개 파트로 나눠 생성합니다. 파트당 약 2~3분 소요됩니다.</span>
->
+                <span style="color:#FFFFFF; font-size:14px; margin-left:6px;">{dur['minutes']}분 / {dur['label']}</span>
+                <br><span style="color:#FF8888; font-size:12px;">{dur['parts']}개 파트로 나눠 생성합니다. 파트당 약 2~3분 소요.</span>
             </div>""",
             unsafe_allow_html=True
         )
@@ -509,7 +507,7 @@ with tab2:
             else:
                 if content_type == "쇼츠":
                     with st.spinner("쇼츠 대본 생성 중..."):
-                        script_prompt = f"""당신은 유튜브 쇼츠 백만 조회수 전문 대본 작가입니다.
+                        s_prompt = f"""당신은 유튜브 쇼츠 백만 조회수 전문 대본 작가입니다.
 
 주제: {topic}
 톤: {tone}
@@ -518,14 +516,13 @@ with tab2:
 【최우선 원칙: 사실 기반 작성】
 - 모든 내용은 검증된 사실과 실제 데이터만 사용한다.
 - 추측이나 과장은 절대 금지. 불확실한 정보는 "보도에 의하면"으로 출처를 밝힌다.
-- 구체적 숫자, 날짜, 기관명을 최대한 포함한다.
 - 허위 사실 날조 절대 금지.
 
 【대본 규칙】
 1. 인사 자기소개 구독 좋아요 언급 금지.
 2. 첫 문장은 현장 투척형, 통념 파괴형, 충격 수치형, 질문 관통형 중 하나.
 3. 첫 세 문장 안에 열린 고리를 건다.
-4. 접속사는 "근데", "그래서", "결국", "알고 보니", "문제는" 사용. "그리고", "또한" 금지.
+4. 접속사는 "근데", "그래서", "결국", "알고 보니", "문제는" 사용. "그리고" "또한" 금지.
 5. 한 문장 15~40자. 50자 넘으면 쪼갠다.
 6. 번호 매기기 금지. 이야기 흐름으로.
 7. 습니다체 기본, 까요체 질문 섞기.
@@ -535,7 +532,7 @@ with tab2:
 11. 모든 숫자 한글 표기. 영어 한글 순화. 마침표만 사용.
 
 【금지어】
-안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다
+안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 감사합니다
 
 【출력 형식】
 ===편1===
@@ -546,7 +543,7 @@ with tab2:
 
 {num_episodes}편 모두 작성하세요."""
 
-                        result = safe_generate(script_prompt, max_tokens=8000)
+                        result = safe_generate(s_prompt, max_tokens=8000)
                         if result.startswith("오류:"):
                             st.error(result)
                         else:
@@ -554,67 +551,69 @@ with tab2:
                             st.success("쇼츠 대본 생성 완료!")
 
                 else:
-                    target_sentences = int(dur_info["sentences"].split("~")[1])
-                    num_parts = dur_info["parts"]
-                    sentences_per_part = 50
-
-                    num_parts = max(1, (target_sentences + sentences_per_part - 1) // sentences_per_part)
-
+                    total_parts = dur["parts"]
                     all_parts = []
                     progress = st.progress(0)
                     status = st.empty()
 
-                    for part in range(num_parts):
-                        status.text(f"대본 생성 중... 파트 {part + 1}/{num_parts}")
+                    for p in range(total_parts):
+                        status.text(f"대본 생성 중... 파트 {p + 1}/{total_parts} (예상 2~3분)")
 
-                        if part == 0:
-                            part_prompt = f"""당신은 유튜브 롱폼 콘텐츠 전문 대본 작가입니다.
+                        if p == 0:
+                            pp = f"""당신은 유튜브 롱폼 콘텐츠 전문 대본 작가입니다.
 
 주제: {topic}
 톤: {tone}
-전체 목표 분량: {dur_info['minutes']}분 ({dur_info['sentences']}문장)
-현재 작성: 파트 {part + 1}/{num_parts} (도입부)
+전체 목표: {dur['minutes']}분 분량 대본
+현재: 파트 {p + 1}/{total_parts} (도입부)
 
 【최우선 원칙: 사실 기반 작성】
 - 모든 내용은 검증된 사실과 실제 데이터만 사용한다.
-- 추측이나 과장은 절대 금지. 불확실한 정보는 출처를 밝힌다.
-- 구체적 숫자, 날짜, 기관명, 법률명 등을 최대한 포함한다.
-- 허위 사실 날조 절대 금지. 모르는 건 쓰지 않는다.
+- 추측이나 과장 절대 금지. 불확실한 정보는 출처를 밝힌다.
+- 구체적 숫자, 날짜, 기관명, 법률명 포함.
+- 허위 사실 날조 절대 금지.
 
 【대본 규칙】
 1. 인사 자기소개 구독 좋아요 언급 금지.
 2. 첫 문장은 현장 투척형, 통념 파괴형, 충격 수치형, 질문 관통형 중 하나.
 3. 첫 세 문장 안에 열린 고리를 건다.
-4. 접속사는 "근데", "그래서", "결국", "알고 보니", "문제는" 사용.
+4. 접속사는 "근데" "그래서" "결국" "알고 보니" "문제는" 사용.
 5. 한 문장 15~40자. 50자 넘으면 쪼갠다.
 6. 번호 매기기 금지. 이야기 흐름.
 7. 습니다체 기본, 까요체 질문 섞기.
 8. 5문장마다 새로운 미끼 던지기.
-9. 모든 숫자 한글 표기. 영어 한글 순화. 마침표만 사용.
-10. 반드시 최소 50문장 이상 작성. 50문장 미만은 절대 금지. 가능하면 60문장까지 작성
-11. 마지막 문장은 다음 파트로 자연스럽게 이어지게.
+9. 모든 숫자 한글. 영어 한글 순화. 마침표만 사용.
+
+【분량 규칙 - 매우 중요】
+반드시 최소 50문장 이상 작성하세요.
+50문장 미만은 절대 금지입니다.
+가능하면 55~60문장까지 작성하세요.
+짧게 쓰지 마세요. 주제를 깊이 파고들어 상세하게 서술하세요.
+하나의 사실에 대해 배경, 원인, 결과, 영향, 사례를 모두 풀어쓰세요.
+
+마지막 문장은 다음 파트로 자연스럽게 이어지게 끝내세요.
 
 【금지어】
-안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 감사합니다
+안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 감사합니다
 
 순수 대본 문장만 출력. 편 번호, 대사 번호, 소제목, 주석 금지."""
 
                         else:
-                            previous_last = "\n".join(all_parts[-1].split("\n")[-5:]) if all_parts else ""
-                            if part == num_parts - 1:
-                                ending = "마지막 문장은 묵직한 여운으로 마무리한다."
+                            prev_last = "\n".join(all_parts[-1].split("\n")[-5:]) if all_parts else ""
+                            if p == total_parts - 1:
+                                end_rule = "마지막 문장은 묵직한 여운으로 마무리한다. 시청자를 멍하게 만드는 문장으로 끝낸다."
                             else:
-                                ending = "마지막 문장은 다음 파트로 자연스럽게 이어지게."
+                                end_rule = "마지막 문장은 다음 파트로 자연스럽게 이어지게 끝낸다."
 
-                            part_prompt = f"""당신은 유튜브 롱폼 콘텐츠 전문 대본 작가입니다.
+                            pp = f"""당신은 유튜브 롱폼 콘텐츠 전문 대본 작가입니다.
 
 주제: {topic}
 톤: {tone}
-전체 목표: {dur_info['minutes']}분
-현재: 파트 {part + 1}/{num_parts} ({'결론부' if part == num_parts - 1 else '중반부'})
+전체 목표: {dur['minutes']}분 분량
+현재: 파트 {p + 1}/{total_parts} ({'결론부' if p == total_parts - 1 else '중반부'})
 
-【이전 파트 마지막 부분】
-{previous_last}
+【이전 파트 마지막 5문장】
+{prev_last}
 
 【최우선 원칙: 사실 기반 작성】
 - 검증된 사실과 실제 데이터만 사용. 추측 과장 금지.
@@ -623,43 +622,50 @@ with tab2:
 
 【대본 규칙】
 1. 이전 파트에 이어서 자연스럽게 시작.
-2. 접속사는 "근데", "그래서", "결국", "알고 보니", "문제는" 사용.
+2. 접속사는 "근데" "그래서" "결국" "알고 보니" "문제는" 사용.
 3. 한 문장 15~40자.
 4. 번호 매기기 금지.
 5. 습니다체 기본, 까요체 섞기.
 6. 5문장마다 새 미끼.
 7. 모든 숫자 한글. 마침표만 사용.
-8. 반드시 최소 50문장 이상 작성. 50문장 미만은 절대 금지. 가능하면 60문장까지 작성.
-9. {ending}
 
-순수 대본 문장만 출력."""
+【분량 규칙 - 매우 중요】
+반드시 최소 50문장 이상 작성하세요.
+50문장 미만은 절대 금지입니다.
+가능하면 55~60문장까지 작성하세요.
+짧게 쓰지 마세요. 주제를 깊이 파고들어 상세하게 서술하세요.
+하나의 사실에 대해 배경, 원인, 결과, 영향, 사례를 모두 풀어쓰세요.
 
-                        result = safe_generate(part_prompt, max_tokens=8000)
+{end_rule}
+
+순수 대본 문장만 출력. 편 번호, 대사 번호, 소제목, 주석 금지."""
+
+                        result = safe_generate(pp, max_tokens=8000)
 
                         if result.startswith("오류:"):
-                            status.text(f"파트 {part + 1} 실패: {result}")
+                            status.text(f"파트 {p + 1} 실패: {result}")
                             break
                         else:
                             all_parts.append(result.strip())
 
-                        progress.progress((part + 1) / num_parts)
+                        progress.progress((p + 1) / total_parts)
 
-                        if part < num_parts - 1:
-                            time.sleep(2)
+                        if p < total_parts - 1:
+                            time.sleep(3)
 
                     if all_parts:
                         full_script = "\n".join(all_parts)
                         st.session_state["auto_script_result"] = full_script
                         total_lines = len([l for l in re.split(r'(?<=[.?])\s*', full_script) if l.strip() and len(l.strip()) > 2])
-                        estimated_minutes = round(total_lines * 8 / 60)
+                        est_min = round(total_lines * 8 / 60)
                         status.text("")
-                        st.success(f"대본 생성 완료! {len(all_parts)}개 파트 / 약 {total_lines}문장 / 예상 {estimated_minutes}분")
+                        st.success(f"대본 생성 완료! {len(all_parts)}개 파트 / 약 {total_lines}문장 / 예상 {est_min}분 분량")
 
         if st.session_state.get("auto_script_result"):
             st.divider()
             raw_script = st.session_state["auto_script_result"]
             preview_lines = [l.strip() for l in re.split(r'(?<=[.?])\s*', raw_script.strip()) if l.strip() and len(l.strip()) > 2]
-            est_min = round(len(preview_lines) * 7.5 / 60)
+            est_min = round(len(preview_lines) * 8 / 60)
 
             st.markdown(
                 f"""<div style="background:#1a2e1a; border:2px solid #4CAF50; border-radius:8px; padding:12px; margin-bottom:12px;">
@@ -722,14 +728,14 @@ with tab2:
                 raw_lines = re.split(r'(?<=[.?])\s*', script_input.strip())
                 lines = [l.strip() for l in raw_lines if l.strip() and len(l.strip()) > 2]
                 st.session_state["script_lines"] = lines
-                st.success(f"대본 저장! {len(lines)}개 문장(장면)으로 분리됨.")
+                st.success(f"대본 저장! {len(lines)}개 문장으로 분리됨.")
             else:
                 st.warning("대본을 입력해주세요.")
 
     if st.session_state.get("script_lines"):
         st.divider()
         lines = st.session_state["script_lines"]
-        est = round(len(lines) * 7.5 / 60)
+        est = round(len(lines) * 8 / 60)
         st.markdown(
             f"""<div style="background:#1a2e1a; border:2px solid #4CAF50; border-radius:8px; padding:12px; margin-bottom:12px;">
                 <span style="color:#88CC88; font-size:14px;">저장된 대본:</span>
@@ -755,6 +761,7 @@ with tab2:
                 st.session_state["script_lines"] = [l.strip() for l in edited_lines if l.strip()]
                 st.success("수정사항 저장됨.")
                 st.rerun()
+
 
 # ═══════════════════════════════════════════
 # 탭3: 이미지 업로드

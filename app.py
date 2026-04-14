@@ -336,7 +336,10 @@ with tab1:
         st.subheader("추천 주제 TOP 10")
 
         raw = st.session_state["topic_recommendations"]
-        json_match = re.search(r'\[.*\]', raw, re.DOTALL)
+        # 마크다운 코드블록 제거
+        cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+        json_match = re.search(r'\[.*\]', cleaned_raw, re.DOTALL)
+
 
         topics_parsed = None
         if json_match:

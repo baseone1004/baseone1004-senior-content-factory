@@ -482,18 +482,20 @@ with tab2:
                 "30분 분량", "45분 분량", "1시간 분량"
             ], key="duration_select")
 
-        duration_map = {
-            "30분 분량": {"minutes": 30, "sentences": "200~250", "words": "약 9000자"},
-            "45분 분량": {"minutes": 45, "sentences": "300~370", "words": "약 13500자"},
-            "1시간 분량": {"minutes": 60, "sentences": "400~500", "words": "약 18000자"},
+                duration_map = {
+            "30분 분량": {"minutes": 30, "sentences": "250~300", "words": "약 12000자", "parts": 6},
+            "45분 분량": {"minutes": 45, "sentences": "380~450", "words": "약 18000자", "parts": 9},
+            "1시간 분량": {"minutes": 60, "sentences": "500~600", "words": "약 24000자", "parts": 12},
         }
+
         dur_info = duration_map.get(duration, duration_map["30분 분량"])
 
         st.markdown(
             f"""<div style="background:#1a1a2e; border:1px solid #444; border-radius:8px; padding:10px; margin:8px 0;">
                 <span style="color:#AAAAAA; font-size:13px;">예상 분량:</span>
                 <span style="color:#FFFFFF; font-size:14px; margin-left:6px;">{dur_info['minutes']}분 / {dur_info['sentences']}문장 / {dur_info['words']}</span>
-                <br><span style="color:#FF8888; font-size:12px;">긴 대본은 여러 파트로 나눠 생성 후 자동으로 이어 붙입니다.</span>
+                <span style="color:#FF8888; font-size:12px;">긴 대본은 {dur_info['parts']}개 파트로 나눠 생성합니다. 파트당 약 2~3분 소요됩니다.</span>
+>
             </div>""",
             unsafe_allow_html=True
         )
@@ -553,7 +555,9 @@ with tab2:
 
                 else:
                     target_sentences = int(dur_info["sentences"].split("~")[1])
-                    sentences_per_part = 80
+                    num_parts = dur_info["parts"]
+                    sentences_per_part = 50
+
                     num_parts = max(1, (target_sentences + sentences_per_part - 1) // sentences_per_part)
 
                     all_parts = []
@@ -587,7 +591,7 @@ with tab2:
 7. 습니다체 기본, 까요체 질문 섞기.
 8. 5문장마다 새로운 미끼 던지기.
 9. 모든 숫자 한글 표기. 영어 한글 순화. 마침표만 사용.
-10. 약 {sentences_per_part}문장 작성.
+10. 반드시 최소 50문장 이상 작성. 50문장 미만은 절대 금지. 가능하면 60문장까지 작성
 11. 마지막 문장은 다음 파트로 자연스럽게 이어지게.
 
 【금지어】
@@ -625,7 +629,7 @@ with tab2:
 5. 습니다체 기본, 까요체 섞기.
 6. 5문장마다 새 미끼.
 7. 모든 숫자 한글. 마침표만 사용.
-8. 약 {sentences_per_part}문장 작성.
+8. 반드시 최소 50문장 이상 작성. 50문장 미만은 절대 금지. 가능하면 60문장까지 작성.
 9. {ending}
 
 순수 대본 문장만 출력."""
@@ -647,7 +651,7 @@ with tab2:
                         full_script = "\n".join(all_parts)
                         st.session_state["auto_script_result"] = full_script
                         total_lines = len([l for l in re.split(r'(?<=[.?])\s*', full_script) if l.strip() and len(l.strip()) > 2])
-                        estimated_minutes = round(total_lines * 7.5 / 60)
+                        estimated_minutes = round(total_lines * 8 / 60)
                         status.text("")
                         st.success(f"대본 생성 완료! {len(all_parts)}개 파트 / 약 {total_lines}문장 / 예상 {estimated_minutes}분")
 
@@ -684,7 +688,7 @@ with tab2:
                 st.session_state["script_text"] = final_text
                 final_lines = [l.strip() for l in re.split(r'(?<=[.?])\s*', final_text.strip()) if l.strip() and len(l.strip()) > 2]
                 st.session_state["script_lines"] = final_lines
-                est = round(len(final_lines) * 7.5 / 60)
+                est = round(len(final_lines) * 8 / 60)
                 st.success(f"대본 저장 완료! {len(final_lines)}문장 / 약 {est}분")
 
     else:

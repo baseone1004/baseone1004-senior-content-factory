@@ -117,6 +117,7 @@ defaults = {
     "topic_recommendations": "",
     "news_data": "",
     "selected_topic_data": {},
+    "auto_script_result": "",
 
 }
 for k, v in defaults.items():
@@ -477,85 +478,290 @@ with tab1:
                     st.session_state["selected_topic"] = topic_input.strip()
                     st.success(f"주제가 결정되었습니다: {topic_input.strip()}")
     
-    # 선택된 주제 표시
+        # 선택된 주제 표시
     if st.session_state.get("selected_topic"):
         st.divider()
         selected_data = st.session_state.get("selected_topic_data", {})
         
-        topic_display_html = f"""
-        <div style="border:3px solid #4CAF50; border-radius:12px; padding:20px; background:#0a2e0a; text-align:center;">
-            <div style="font-size:14px; color:#88CC88;">현재 선택된 주제</div>
-            <div style="font-size:24px; font-weight:bold; color:#FFFFFF; margin:10px 0;">{st.session_state['selected_topic']}</div>
-        """
-        if selected_data:
-            topic_display_html += f"""
-            <div style="font-size:14px; color:#AAAAAA;">
-                떡상확률: <span style="color:#FF4444; font-weight:bold;">{selected_data.get('떡상확률', '')}%</span> | 
-                난이도: {selected_data.get('난이도', '')} | 
-                태그: {selected_data.get('추천태그', '')}
+        st.markdown(
+            f"""
+            <div style="border:3px solid #4CAF50; border-radius:12px; padding:20px; background:#0a2e0a; text-align:center;">
+                <div style="font-size:14px; color:#88CC88;">현재 선택된 주제</div>
+                <div style="font-size:24px; font-weight:bold; color:#FFFFFF; margin:10px 0;">{st.session_state['selected_topic']}</div>
+                <div style="font-size:14px; color:#AAAAAA;">
+                    {f'떡상확률: <span style="color:#FF4444; font-weight:bold;">{selected_data.get("떡상확률", "")}%</span> | 난이도: {selected_data.get("난이도", "")} | 태그: {selected_data.get("추천태그", "")}' if selected_data else ''}
+                </div>
+                <div style="font-size:13px; color:#888888; margin-top:10px;">이 주제로 탭2에서 대본을 생성하거나 붙여넣으세요.</div>
             </div>
-            """
-        topic_display_html += """
-            <div style="font-size:13px; color:#888888; margin-top:10px;">이 주제로 Skywork에서 대본과 이미지를 생성한 후, 탭2와 탭3에서 입력해주세요.</div>
-        </div>
-        """
-        st.markdown(topic_display_html, unsafe_allow_html=True)
+            """,
+            unsafe_allow_html=True
+        )
+
 
 # ═══════════════════════════════════════════
-# 탭2: 대본 입력 (Skywork에서 가져온 대본 붙여넣기)
+# 탭2: 대본 입력 (Gemini 자동생성 + Skywork 붙여넣기)
 # ═══════════════════════════════════════════
 with tab2:
     st.header("대본 입력")
     
     if st.session_state.get("selected_topic"):
-        st.info(f"현재 주제: {st.session_state['selected_topic']}")
+        st.markdown(
+            f"""
+            <div style="border:2px solid #4CAF50; border-radius:8px; padding:12px; background:#0a2e0a; margin-bottom:16px;">
+                <span style="color:#88CC88; font-size:13px;">현재 주제:</span>
+                <span style="color:#FFFFFF; font-size:16px; font-weight:bold; margin-left:8px;">{st.session_state['selected_topic']}</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
     else:
         st.warning("탭1에서 먼저 주제를 선택해주세요.")
     
-    st.caption("Skywork에서 생성한 대본을 아래에 붙여넣으세요. 문장 단위로 구분됩니다.")
-    
-    script_input = st.text_area(
-        "대본 전체 붙여넣기",
-        value=st.session_state.get("script_text", ""),
-        height=400,
-        placeholder="Skywork에서 생성한 순수 대본을 여기에 붙여넣으세요.\n\n마침표(.)로 끝나는 각 문장이 하나의 장면이 됩니다.",
-        key="script_textarea"
+    # 모드 선택
+    script_mode = st.radio(
+        "대본 작성 방법",
+        ["Gemini 자동 생성", "Skywork 대본 붙여넣기"],
+        horizontal=True,
+        key="script_mode"
     )
     
-    if st.button("대본 저장 및 분석", key="btn_save_script", use_container_width=True):
-        if script_input.strip():
-            st.session_state["script_text"] = script_input.strip()
-            # 마침표 기준으로 문장 분리
-            raw_lines = re.split(r'(?<=[.?])\s*', script_input.strip())
-            lines = [l.strip() for l in raw_lines if l.strip() and len(l.strip()) > 2]
-            st.session_state["script_lines"] = lines
-            st.success(f"대본이 저장되었습니다. 총 {len(lines)}개 문장(장면)으로 분리됨.")
-        else:
-            st.warning("대본을 입력해주세요.")
+    st.divider()
     
+    # ─── 모드1: Gemini 자동 생성 ───
+    if script_mode == "Gemini 자동 생성":
+        st.subheader("Gemini 자동 대본 생성")
+        st.caption("선택한 주제를 기반으로 Gemini가 유튜브 쇼츠/롱폼 대본을 자동 생성합니다.")
+        
+        content_type = st.session_state.get("content_type", "쇼츠")
+        
+        col_opt1, col_opt2 = st.columns(2)
+        with col_opt1:
+            if content_type == "쇼츠":
+                num_episodes = st.slider("생성할 편 수", 1, 10, 1, key="num_episodes")
+            else:
+                num_episodes = 1
+                st.info("롱폼은 1편씩 생성합니다.")
+        with col_opt2:
+            tone = st.selectbox("톤 선택", [
+                "충격/폭로형", "분석/해설형", "공감/스토리형", "비교/대조형", "미래전망형"
+            ], key="tone_select")
+        
+        if st.button("대본 자동 생성", key="btn_auto_script", use_container_width=True):
+            topic = st.session_state.get("selected_topic", "")
+            if not topic:
+                st.error("탭1에서 주제를 먼저 선택해주세요.")
+            elif not GEMINI_API_KEY:
+                st.error("Gemini API 키가 없습니다.")
+            else:
+                with st.spinner("Gemini가 대본을 생성 중입니다... (30초~1분 소요)"):
+                    
+                    if content_type == "쇼츠":
+                        script_prompt = f"""당신은 유튜브 쇼츠 백만 조회수 전문 대본 작가입니다.
+
+주제: {topic}
+톤: {tone}
+생성할 편 수: {num_episodes}편
+
+아래 규칙을 반드시 지켜서 대본을 작성하세요:
+
+【대본 핵심 원칙】
+1. 첫 문장이 곧 생사다. 인사하지 않는다. 자기소개하지 않는다. 구독 좋아요 언급하지 않는다.
+2. 첫 문장은 현장 투척형, 통념 파괴형, 충격 수치형, 질문 관통형 중 하나로 시작한다.
+3. 첫 세 문장 안에 시청자가 끝까지 볼 수밖에 없는 궁금증(열린 고리)을 만든다.
+4. 접속사는 "근데", "그래서", "결국", "알고 보니", "문제는"을 사용한다. "그리고", "또한", "뿐만 아니라"는 금지.
+5. 한 문장은 15자~40자. 50자 넘으면 두 개로 쪼갠다.
+6. 번호 매기기 금지. 하나의 이야기 흐름으로 이어간다.
+7. 습니다체 기본, 중간중간 까요체로 질문을 던진다.
+8. 감정 곡선: 충격→공감→분노/안타까움→반전→여운
+9. 마지막 문장은 묵직한 여운 또는 다음 편 유도로 끝낸다.
+10. 각 편은 8~15문장, 1분 이내 분량.
+11. 모든 숫자는 한글로 표기 (예: 삼십억, 이천이십육년)
+12. 모든 영어는 한글로 순화
+13. 마침표만 사용. 특수기호 금지.
+
+【금지어】
+안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다, 다음에 또, 좋은 영상, 찾아오겠습니다
+
+【출력 형식】
+각 편을 아래처럼 출력하세요:
+
+===편1===
+(순수 대본 문장만 마침표로 나열. 편 번호나 대사 번호 없이 문장만.)
+
+===편2===
+(순수 대본 문장만)
+
+{num_episodes}편을 모두 작성하세요."""
+                    
+                    else:
+                        script_prompt = f"""당신은 유튜브 롱폼 콘텐츠 전문 대본 작가입니다.
+
+주제: {topic}
+톤: {tone}
+
+8~12분 분량의 유튜브 롱폼 대본을 작성하세요.
+
+규칙:
+1. 인사/자기소개 없이 바로 시작
+2. 첫 문장은 충격적 사실이나 현장 묘사로 시작
+3. 전체를 자연스러운 흐름으로 연결 (번호 매기기 금지)
+4. 습니다체 기본, 중간중간 까요체 질문
+5. 한 문장 15~50자
+6. 감정 곡선 설계: 충격→분석→공감→반전→결론→여운
+7. 총 40~60문장
+8. 마침표만 사용
+9. 모든 숫자 한글 표기
+10. 금지어: 안녕하세요, 여러분, 오늘은, 구독, 좋아요
+
+===롱폼===
+(순수 대본 문장만 마침표로 나열)"""
+                    
+                    result = safe_generate(script_prompt, max_tokens=8000)
+                    
+                    if result.startswith("오류:"):
+                        st.error(result)
+                    else:
+                        st.session_state["auto_script_result"] = result
+                        st.success("대본 생성 완료!")
+        
+        # 자동 생성 결과 표시
+        if st.session_state.get("auto_script_result"):
+            st.divider()
+            st.subheader("생성된 대본")
+            
+            raw_script = st.session_state["auto_script_result"]
+            
+            # 편별 분리
+            episodes = re.split(r'===편\d+===|===롱폼===', raw_script)
+            episodes = [ep.strip() for ep in episodes if ep.strip()]
+            
+            if not episodes:
+                episodes = [raw_script.strip()]
+            
+            for ep_idx, episode in enumerate(episodes):
+                if len(episodes) > 1:
+                    st.markdown(
+                        f"""
+                        <div style="background:#1a1a3e; padding:8px 16px; border-radius:8px; margin:12px 0 4px 0;">
+                            <span style="color:#88AAFF; font-weight:bold;">편 {ep_idx + 1}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+                
+                st.text_area(
+                    f"대본 편집 (편 {ep_idx + 1})" if len(episodes) > 1 else "대본 편집",
+                    value=episode,
+                    height=250,
+                    key=f"auto_ep_{ep_idx}"
+                )
+            
+            st.divider()
+            
+            # 대본 저장 (원하는 편 선택)
+            if len(episodes) > 1:
+                save_ep = st.selectbox(
+                    "저장할 편 선택",
+                    [f"편 {i+1}" for i in range(len(episodes))] + ["전체 합치기"],
+                    key="save_ep_select"
+                )
+                save_idx = int(save_ep.replace("편 ", "")) - 1 if save_ep != "전체 합치기" else -1
+            else:
+                save_idx = 0
+            
+            if st.button("이 대본을 탭2에 저장", key="btn_save_auto_script", use_container_width=True):
+                if save_idx == -1:
+                    final_script = "\n".join(episodes)
+                else:
+                    final_script = st.session_state.get(f"auto_ep_{save_idx}", episodes[save_idx])
+                
+                st.session_state["script_text"] = final_script
+                raw_lines = re.split(r'(?<=[.?])\s*', final_script.strip())
+                lines = [l.strip() for l in raw_lines if l.strip() and len(l.strip()) > 2]
+                st.session_state["script_lines"] = lines
+                st.success(f"대본 저장 완료! 총 {len(lines)}개 문장(장면)으로 분리됨.")
+    
+    # ─── 모드2: Skywork 붙여넣기 ───
+    else:
+        st.subheader("Skywork 대본 붙여넣기")
+        st.caption("Skywork에서 생성한 대본을 아래에 붙여넣으세요. 마침표 기준으로 문장이 분리됩니다.")
+        
+        st.markdown(
+            """
+            <div style="background:#1a1a2e; border:1px solid #444; border-radius:8px; padding:12px; margin-bottom:12px;">
+                <div style="color:#AAAAAA; font-size:13px;">Skywork 대본 생성 방법</div>
+                <div style="color:#DDDDDD; font-size:14px; margin-top:6px;">
+                    1. <a href="https://skywork.ai" target="_blank" style="color:#88AAFF;">skywork.ai</a> 접속<br>
+                    2. 채팅에서 주제와 대본 규칙을 입력<br>
+                    3. 생성된 대본의 순수 대사 부분만 복사<br>
+                    4. 아래 텍스트 박스에 붙여넣기
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        script_input = st.text_area(
+            "대본 전체 붙여넣기",
+            value=st.session_state.get("script_text", ""),
+            height=400,
+            placeholder="Skywork에서 생성한 순수 대본을 여기에 붙여넣으세요.\n\n마침표(.)로 끝나는 각 문장이 하나의 장면이 됩니다.",
+            key="script_textarea"
+        )
+        
+        if st.button("대본 저장 및 분석", key="btn_save_script", use_container_width=True):
+            if script_input.strip():
+                st.session_state["script_text"] = script_input.strip()
+                raw_lines = re.split(r'(?<=[.?])\s*', script_input.strip())
+                lines = [l.strip() for l in raw_lines if l.strip() and len(l.strip()) > 2]
+                st.session_state["script_lines"] = lines
+                st.success(f"대본이 저장되었습니다. 총 {len(lines)}개 문장(장면)으로 분리됨.")
+            else:
+                st.warning("대본을 입력해주세요.")
+    
+    # ─── 공통: 저장된 대본 표시 ───
     if st.session_state.get("script_lines"):
         st.divider()
-        st.subheader(f"분리된 문장 ({len(st.session_state['script_lines'])}개)")
-        for i, line in enumerate(st.session_state["script_lines"]):
-            st.text(f"장면 {i+1:03d}: {line}")
+        lines = st.session_state["script_lines"]
         
-        st.divider()
-        st.subheader("문장 수동 편집")
-        st.caption("필요 시 개별 문장을 수정할 수 있습니다.")
+        st.markdown(
+            f"""
+            <div style="background:#1a2e1a; border:2px solid #4CAF50; border-radius:8px; padding:12px; margin-bottom:12px;">
+                <span style="color:#88CC88; font-size:14px;">저장된 대본:</span>
+                <span style="color:#FFFFFF; font-size:16px; font-weight:bold; margin-left:8px;">{len(lines)}개 문장 (장면)</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         
-        edited_lines = []
-        for i, line in enumerate(st.session_state["script_lines"]):
-            edited = st.text_input(
-                f"장면 {i+1:03d}",
-                value=line,
-                key=f"edit_line_{i}"
-            )
-            edited_lines.append(edited)
+        # 장면 리스트 표시
+        with st.expander("전체 장면 보기", expanded=False):
+            for i, line in enumerate(lines):
+                st.markdown(
+                    f"""
+                    <div style="display:flex; padding:6px 0; border-bottom:1px solid #333;">
+                        <span style="color:#888; min-width:60px; font-size:13px;">장면 {i+1:03d}</span>
+                        <span style="color:#DDD; font-size:14px; margin-left:8px;">{line}</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
         
-        if st.button("수정사항 저장", key="btn_save_edits"):
-            st.session_state["script_lines"] = [l.strip() for l in edited_lines if l.strip()]
-            st.success("수정사항이 저장되었습니다.")
-            st.rerun()
+        # 문장 수동 편집
+        with st.expander("문장 수동 편집"):
+            edited_lines = []
+            for i, line in enumerate(lines):
+                edited = st.text_input(
+                    f"장면 {i+1:03d}",
+                    value=line,
+                    key=f"edit_line_{i}"
+                )
+                edited_lines.append(edited)
+            
+            if st.button("수정사항 저장", key="btn_save_edits"):
+                st.session_state["script_lines"] = [l.strip() for l in edited_lines if l.strip()]
+                st.success("수정사항이 저장되었습니다.")
+                st.rerun()
 
 # ═══════════════════════════════════════════
 # 탭3: 이미지 업로드 (Skywork에서 가져온 이미지)

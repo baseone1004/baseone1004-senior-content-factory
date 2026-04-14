@@ -105,12 +105,29 @@ for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-def clean_special(text):
+def clean_script(text):
     if not text:
         return ""
-    text = re.sub(r'[*#_~`>|]', '', text)
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    return text.strip()
+    # 마크다운 볼드/이탤릭 제거
+    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
+    text = re.sub(r'\*([^*]+)\*', r'\1', text)
+    # 기타 특수기호 제거
+    text = re.sub(r'[*#_~`>|{}[\]]', '', text)
+    # 빈 줄 정리
+    lines = text.split('\n')
+    cleaned = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        # 한 줄에 문장이 여러 개 붙어있으면 마침표 기준으로 분리
+        sentences = re.split(r'(?<=[.?])\s+', line)
+        for s in sentences:
+            s = s.strip()
+            if s and len(s) > 2:
+                cleaned.append(s)
+    return '\n'.join(cleaned)
+
 
 def safe_generate(prompt, system_prompt="", max_tokens=4096):
     if not GEMINI_API_KEY:
@@ -547,8 +564,9 @@ with tab2:
                         if result.startswith("오류:"):
                             st.error(result)
                         else:
-                            st.session_state["auto_script_result"] = result
+                            st.session_state["auto_script_result"] = clean_script(result)
                             st.success("쇼츠 대본 생성 완료!")
+
 
                 else:
                     total_parts = dur["parts"]
@@ -596,7 +614,22 @@ with tab2:
 【금지어】
 안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 감사합니다
 
-순수 대본 문장만 출력. 편 번호, 대사 번호, 소제목, 주석 금지."""
+【출력 형식 규칙 - 반드시 지킬 것】
+- 한 문장을 쓰고 반드시 줄바꿈한다. 절대 한 줄에 두 문장 이상 쓰지 않는다.
+- 문단으로 묶지 않는다. 모든 문장은 독립된 한 줄로 작성한다.
+- 마크다운 볼드(**) 이탤릭(*) 헤더(#) 등 특수 서식 절대 금지.
+- 편 번호, 대사 번호, 소제목, 주석, 괄호 설명 일체 금지.
+- 오직 순수 대본 문장만 한 줄에 하나씩 출력한다.
+
+올바른 출력 예시:
+우리나라 금융권의 부실 채권이 백조 원에 육박하고 있습니다.
+이 수치는 단순한 경고가 아닙니다.
+근데 더 심각한 건 따로 있습니다.
+
+잘못된 출력 예시:
+우리나라 금융권의 부실 채권이 백조 원에 육박하고 있습니다. 이 수치는 단순한 경고가 아닙니다. 근데 더 심각한 건 따로 있습니다.
+**근데** 더 심각한 건 따로 있습니다."""
+
 
                         else:
                             prev_last = "\n".join(all_parts[-1].split("\n")[-5:]) if all_parts else ""
@@ -638,7 +671,22 @@ with tab2:
 
 {end_rule}
 
-순수 대본 문장만 출력. 편 번호, 대사 번호, 소제목, 주석 금지."""
+【출력 형식 규칙 - 반드시 지킬 것】
+- 한 문장을 쓰고 반드시 줄바꿈한다. 절대 한 줄에 두 문장 이상 쓰지 않는다.
+- 문단으로 묶지 않는다. 모든 문장은 독립된 한 줄로 작성한다.
+- 마크다운 볼드(**) 이탤릭(*) 헤더(#) 등 특수 서식 절대 금지.
+- 편 번호, 대사 번호, 소제목, 주석, 괄호 설명 일체 금지.
+- 오직 순수 대본 문장만 한 줄에 하나씩 출력한다.
+
+올바른 출력 예시:
+우리나라 금융권의 부실 채권이 백조 원에 육박하고 있습니다.
+이 수치는 단순한 경고가 아닙니다.
+근데 더 심각한 건 따로 있습니다.
+
+잘못된 출력 예시:
+우리나라 금융권의 부실 채권이 백조 원에 육박하고 있습니다. 이 수치는 단순한 경고가 아닙니다. 근데 더 심각한 건 따로 있습니다.
+**근데** 더 심각한 건 따로 있습니다."""
+
 
                         result = safe_generate(pp, max_tokens=8000)
 
@@ -646,7 +694,8 @@ with tab2:
                             status.text(f"파트 {p + 1} 실패: {result}")
                             break
                         else:
-                            all_parts.append(result.strip())
+                            all_parts.append(clean_script(result))
+
 
                         progress.progress((p + 1) / total_parts)
 

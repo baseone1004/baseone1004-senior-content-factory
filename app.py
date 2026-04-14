@@ -332,7 +332,7 @@ with tab1:
                 
                 content_label = st.session_state.get("content_type", "쇼츠")
                 
-                topic_prompt = f"""당신은 유튜브 {content_label} 백만 조회수 전문 기획자입니다.
+                                topic_prompt = f"""당신은 유튜브 {content_label} 백만 조회수 전문 기획자입니다.
 
 아래는 "{selected_cat}" 카테고리의 최신 뉴스입니다:
 
@@ -345,7 +345,7 @@ with tab1:
 [
   {{
     "번호": 1,
-    "주제": "20자 이내 자극적 제목",
+    "주제": "유튜브 제목 (20~25자)",
     "출처뉴스": "참고한 뉴스 제목",
     "떡상확률": 85,
     "이유": "왜 이 주제가 떡상할지 한 줄 설명",
@@ -355,15 +355,28 @@ with tab1:
   ...
 ]
 
-규칙:
-1. 주제는 20자 이내, 시청자가 클릭 안 할 수 없는 자극적 제목
-2. 떡상확률은 50~95 사이 숫자 (현실적으로)
-3. 이유는 30자 이내
-4. 난이도는 "쉬움", "보통", "어려움" 중 택1
-5. 10개 주제는 서로 겹치지 않아야 함
-6. 최신 뉴스와 직접 연관된 주제 우선
-7. 추천태그는 3~5개
-8. 떡상확률 높은 순서로 정렬"""
+제목 작성 필수 규칙:
+1. 주제는 반드시 20자~25자 사이로 작성. 19자 이하나 26자 이상은 절대 금지
+2. 유튜브 썸네일과 제목에 바로 쓸 수 있는 완성된 한 줄 제목
+3. 시청자가 클릭하지 않고는 못 배기는 자극적 제목으로 작성
+4. 제목 기법 반드시 활용: 숫자 넣기 (예: 3가지 충격적 이유), 의문형 (예: 왜 전부 망했을까), 충격 단어 (예: 결국 터졌다, 충격 실태, 소름 돋는 진실), 비교형 (예: 이것만 달랐다), 경고형 (예: 지금 당장 확인하세요)
+5. 한 제목에 위 기법을 2개 이상 조합하면 더 좋음
+
+기타 규칙:
+6. 떡상확률은 50~95 사이 숫자로 현실적으로 판단
+7. 이유는 30자 이내
+8. 난이도는 "쉬움", "보통", "어려움" 중 택1
+9. 10개 주제는 서로 겹치지 않아야 함
+10. 최신 뉴스와 직접 연관된 주제 우선
+11. 추천태그는 3~5개
+12. 떡상확률 높은 순서로 정렬
+
+나쁜 예시 (너무 짧음): "유가 상승 영향" (7자) → 금지
+나쁜 예시 (너무 김): "중동 전쟁으로 인한 국제 유가 급등이 한국 경제에 미치는 충격적 영향" (32자) → 금지
+좋은 예시: "유가 백달러 돌파 당신 지갑이 위험한 세가지 이유" (23자) → 적합
+좋은 예시: "자영업자 절반이 빚더미 이 구조가 소름 돋는다" (22자) → 적합
+좋은 예시: "학자금 체납 역대 최대 청년들에게 무슨 일이" (21자) → 적합"""
+
 
                 topic_result = safe_generate(topic_prompt, max_tokens=6000)
                 
@@ -527,14 +540,14 @@ with tab2:
     
     st.divider()
     
-    # ─── 모드1: Gemini 자동 생성 ───
+        # ─── 모드1: Gemini 자동 생성 ───
     if script_mode == "Gemini 자동 생성":
         st.subheader("Gemini 자동 대본 생성")
-        st.caption("선택한 주제를 기반으로 Gemini가 유튜브 쇼츠/롱폼 대본을 자동 생성합니다.")
+        st.caption("선택한 주제를 기반으로 Gemini가 사실 기반 대본을 자동 생성합니다.")
         
         content_type = st.session_state.get("content_type", "쇼츠")
         
-        col_opt1, col_opt2 = st.columns(2)
+        col_opt1, col_opt2, col_opt3 = st.columns(3)
         with col_opt1:
             if content_type == "쇼츠":
                 num_episodes = st.slider("생성할 편 수", 1, 10, 1, key="num_episodes")
@@ -545,6 +558,29 @@ with tab2:
             tone = st.selectbox("톤 선택", [
                 "충격/폭로형", "분석/해설형", "공감/스토리형", "비교/대조형", "미래전망형"
             ], key="tone_select")
+        with col_opt3:
+            duration = st.selectbox("영상 길이", [
+                "30분 분량", "45분 분량", "1시간 분량"
+            ], key="duration_select")
+        
+        # 분량 설정
+        duration_map = {
+            "30분 분량": {"minutes": 30, "sentences": "200~250", "words": "약 9000자"},
+            "45분 분량": {"minutes": 45, "sentences": "300~370", "words": "약 13500자"},
+            "1시간 분량": {"minutes": 60, "sentences": "400~500", "words": "약 18000자"},
+        }
+        dur_info = duration_map.get(duration, duration_map["30분 분량"])
+        
+        st.markdown(
+            f"""
+            <div style="background:#1a1a2e; border:1px solid #444; border-radius:8px; padding:10px; margin:8px 0;">
+                <span style="color:#AAAAAA; font-size:13px;">예상 분량:</span>
+                <span style="color:#FFFFFF; font-size:14px; margin-left:6px;">{dur_info['minutes']}분 / {dur_info['sentences']}문장 / {dur_info['words']}</span>
+                <br><span style="color:#FF8888; font-size:12px; margin-top:4px;">긴 대본은 여러 번에 나눠 생성합니다. 자동으로 이어 붙여집니다.</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         
         if st.button("대본 자동 생성", key="btn_auto_script", use_container_width=True):
             topic = st.session_state.get("selected_topic", "")
@@ -553,133 +589,172 @@ with tab2:
             elif not GEMINI_API_KEY:
                 st.error("Gemini API 키가 없습니다.")
             else:
-                with st.spinner("Gemini가 대본을 생성 중입니다... (30초~1분 소요)"):
+                # 파트 수 계산
+                target_sentences = int(dur_info["sentences"].split("~")[1])
+                sentences_per_part = 80
+                num_parts = max(1, (target_sentences + sentences_per_part - 1) // sentences_per_part)
+                
+                all_parts = []
+                progress = st.progress(0)
+                status = st.empty()
+                
+                for part in range(num_parts):
+                    status.text(f"대본 생성 중... 파트 {part + 1}/{num_parts}")
                     
-                    if content_type == "쇼츠":
-                        script_prompt = f"""당신은 유튜브 쇼츠 백만 조회수 전문 대본 작가입니다.
+                    if part == 0:
+                        part_prompt = f"""당신은 유튜브 롱폼 콘텐츠 전문 대본 작가입니다.
 
 주제: {topic}
 톤: {tone}
-생성할 편 수: {num_episodes}편
+전체 목표 분량: {dur_info['minutes']}분 ({dur_info['sentences']}문장)
+현재 작성: 파트 {part + 1}/{num_parts} (도입부 ~ 전개)
 
-아래 규칙을 반드시 지켜서 대본을 작성하세요:
+【최우선 원칙: 사실 기반 작성】
+- 모든 내용은 검증된 사실과 실제 데이터만 사용한다.
+- 추측이나 과장은 절대 금지. 불확실한 정보는 "알려진 바에 따르면", "보도에 의하면"으로 출처를 밝힌다.
+- 구체적 숫자, 날짜, 기관명, 법률명 등을 최대한 포함한다.
+- 허위 사실 날조 절대 금지. 모르는 건 쓰지 않는다.
 
-【대본 핵심 원칙】
-1. 첫 문장이 곧 생사다. 인사하지 않는다. 자기소개하지 않는다. 구독 좋아요 언급하지 않는다.
-2. 첫 문장은 현장 투척형, 통념 파괴형, 충격 수치형, 질문 관통형 중 하나로 시작한다.
-3. 첫 세 문장 안에 시청자가 끝까지 볼 수밖에 없는 궁금증(열린 고리)을 만든다.
-4. 접속사는 "근데", "그래서", "결국", "알고 보니", "문제는"을 사용한다. "그리고", "또한", "뿐만 아니라"는 금지.
+【대본 작성 규칙】
+1. 인사하지 않는다. 자기소개하지 않는다. 구독 좋아요 언급하지 않는다.
+2. 첫 문장은 현장 투척형, 통념 파괴형, 충격 수치형, 질문 관통형 중 하나로 시작.
+3. 첫 세 문장 안에 열린 고리(궁금증)를 건다.
+4. 접속사는 "근데", "그래서", "결국", "알고 보니", "문제는"을 사용. "그리고", "또한" 금지.
 5. 한 문장은 15자~40자. 50자 넘으면 두 개로 쪼갠다.
 6. 번호 매기기 금지. 하나의 이야기 흐름으로 이어간다.
 7. 습니다체 기본, 중간중간 까요체로 질문을 던진다.
-8. 감정 곡선: 충격→공감→분노/안타까움→반전→여운
-9. 마지막 문장은 묵직한 여운 또는 다음 편 유도로 끝낸다.
-10. 각 편은 8~15문장, 1분 이내 분량.
-11. 모든 숫자는 한글로 표기 (예: 삼십억, 이천이십육년)
-12. 모든 영어는 한글로 순화
-13. 마침표만 사용. 특수기호 금지.
+8. 감정 곡선: 충격 → 분석 → 공감 → 분노/안타까움 → 반전 → 분석 심화 (반복)
+9. 5문장마다 새로운 미끼를 던진다. "근데 여기서 더 충격적인 건요." "알고 보면 이게 끝이 아닙니다."
+10. 모든 숫자는 한글로 표기 (삼십억, 이천이십육년)
+11. 모든 영어는 한글 순화
+12. 마침표만 사용. 특수기호 금지.
+13. 같은 감정 세 문장 연속 금지. 중간에 반드시 다른 감정을 끼운다.
 
 【금지어】
 안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다, 다음에 또, 좋은 영상, 찾아오겠습니다
 
-【출력 형식】
-각 편을 아래처럼 출력하세요:
-
-===편1===
-(순수 대본 문장만 마침표로 나열. 편 번호나 대사 번호 없이 문장만.)
-
-===편2===
-(순수 대본 문장만)
-
-{num_episodes}편을 모두 작성하세요."""
+【출력 규칙】
+- 순수 대본 문장만 출력한다.
+- 편 번호, 대사 번호, 소제목, 주석 일체 금지.
+- 약 {sentences_per_part}문장을 작성한다.
+- 마지막 문장은 다음 파트로 자연스럽게 이어지는 전환 문장으로 끝낸다.
+- "다음 파트에서 계속" 같은 메타 언급 금지."""
                     
                     else:
-                        script_prompt = f"""당신은 유튜브 롱폼 콘텐츠 전문 대본 작가입니다.
+                        previous_last_lines = "\n".join(all_parts[-1].split("\n")[-5:]) if all_parts else ""
+                        
+                        if part == num_parts - 1:
+                            ending_instruction = "마지막 문장은 묵직한 여운으로 마무리한다. 시청자를 멍하게 만드는 한 문장으로 끝낸다."
+                        else:
+                            ending_instruction = "마지막 문장은 다음 파트로 자연스럽게 이어지는 전환 문장으로 끝낸다."
+                        
+                        part_prompt = f"""당신은 유튜브 롱폼 콘텐츠 전문 대본 작가입니다.
 
 주제: {topic}
 톤: {tone}
+전체 목표 분량: {dur_info['minutes']}분
+현재 작성: 파트 {part + 1}/{num_parts} ({'중반부' if part < num_parts - 1 else '결론부'})
 
-8~12분 분량의 유튜브 롱폼 대본을 작성하세요.
+【이전 파트 마지막 부분】
+{previous_last_lines}
 
-규칙:
-1. 인사/자기소개 없이 바로 시작
-2. 첫 문장은 충격적 사실이나 현장 묘사로 시작
-3. 전체를 자연스러운 흐름으로 연결 (번호 매기기 금지)
-4. 습니다체 기본, 중간중간 까요체 질문
-5. 한 문장 15~50자
-6. 감정 곡선 설계: 충격→분석→공감→반전→결론→여운
-7. 총 40~60문장
-8. 마침표만 사용
-9. 모든 숫자 한글 표기
-10. 금지어: 안녕하세요, 여러분, 오늘은, 구독, 좋아요
+【최우선 원칙: 사실 기반 작성】
+- 모든 내용은 검증된 사실과 실제 데이터만 사용한다.
+- 추측이나 과장은 절대 금지. 불확실한 정보는 출처를 밝힌다.
+- 구체적 숫자, 날짜, 기관명, 법률명 등을 최대한 포함한다.
+- 허위 사실 날조 절대 금지.
+- 앞 파트와 내용이 중복되면 안 된다. 새로운 관점과 정보로 이야기를 확장한다.
 
-===롱폼===
-(순수 대본 문장만 마침표로 나열)"""
+【대본 작성 규칙】
+1. 위 이전 파트에 이어서 자연스럽게 시작한다.
+2. 접속사는 "근데", "그래서", "결국", "알고 보니", "문제는" 사용.
+3. 한 문장 15~40자. 50자 넘으면 쪼갠다.
+4. 번호 매기기 금지. 이야기 흐름으로 이어간다.
+5. 습니다체 기본, 까요체 질문 섞기.
+6. 5문장마다 새로운 미끼 던지기.
+7. 모든 숫자 한글 표기. 영어 한글 순화.
+8. 마침표만 사용.
+9. {ending_instruction}
+
+【금지어】
+안녕하세요, 여러분, 오늘은, 소개해 드릴, 알아볼게요, 구독, 좋아요, 알림, 눌러주세요, 도움이 되셨다면, 감사합니다, 다음에 또, 좋은 영상, 찾아오겠습니다
+
+【출력 규칙】
+- 순수 대본 문장만 출력한다.
+- 약 {sentences_per_part}문장을 작성한다.
+- 편 번호, 대사 번호, 소제목, 주석 일체 금지."""
                     
-                    result = safe_generate(script_prompt, max_tokens=8000)
+                    result = safe_generate(part_prompt, max_tokens=8000)
                     
                     if result.startswith("오류:"):
-                        st.error(result)
+                        status.text(f"파트 {part + 1} 생성 실패: {result}")
+                        break
                     else:
-                        st.session_state["auto_script_result"] = result
-                        st.success("대본 생성 완료!")
+                        all_parts.append(result.strip())
+                    
+                    progress.progress((part + 1) / num_parts)
+                    
+                    if part < num_parts - 1:
+                        time.sleep(2)
+                
+                if all_parts:
+                    full_script = "\n".join(all_parts)
+                    st.session_state["auto_script_result"] = full_script
+                    
+                    total_lines = len([l for l in re.split(r'(?<=[.?])\s*', full_script) if l.strip() and len(l.strip()) > 2])
+                    estimated_minutes = round(total_lines * 7.5 / 60)
+                    
+                    status.text("")
+                    st.success(f"대본 생성 완료! 총 {len(all_parts)}개 파트 / 약 {total_lines}문장 / 예상 {estimated_minutes}분 분량")
         
         # 자동 생성 결과 표시
         if st.session_state.get("auto_script_result"):
             st.divider()
-            st.subheader("생성된 대본")
             
             raw_script = st.session_state["auto_script_result"]
+            raw_lines = re.split(r'(?<=[.?])\s*', raw_script.strip())
+            preview_lines = [l.strip() for l in raw_lines if l.strip() and len(l.strip()) > 2]
+            estimated_min = round(len(preview_lines) * 7.5 / 60)
             
-            # 편별 분리
-            episodes = re.split(r'===편\d+===|===롱폼===', raw_script)
-            episodes = [ep.strip() for ep in episodes if ep.strip()]
+            st.markdown(
+                f"""
+                <div style="background:#1a2e1a; border:2px solid #4CAF50; border-radius:8px; padding:12px; margin-bottom:12px;">
+                    <span style="color:#88CC88; font-size:16px; font-weight:bold;">생성된 대본</span>
+                    <span style="color:#FFFFFF; font-size:14px; margin-left:12px;">{len(preview_lines)}문장 / 약 {estimated_min}분 분량</span>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
             
-            if not episodes:
-                episodes = [raw_script.strip()]
+            edited_script = st.text_area(
+                "대본 편집 (전체)",
+                value=raw_script,
+                height=500,
+                key="auto_full_edit"
+            )
             
-            for ep_idx, episode in enumerate(episodes):
-                if len(episodes) > 1:
+            # 처음 10문장 미리보기
+            with st.expander(f"처음 10문장 미리보기 (총 {len(preview_lines)}문장)"):
+                for i, line in enumerate(preview_lines[:10]):
                     st.markdown(
-                        f"""
-                        <div style="background:#1a1a3e; padding:8px 16px; border-radius:8px; margin:12px 0 4px 0;">
-                            <span style="color:#88AAFF; font-weight:bold;">편 {ep_idx + 1}</span>
-                        </div>
-                        """,
+                        f"""<div style="padding:4px 0; border-bottom:1px solid #333;">
+                            <span style="color:#888; font-size:12px;">{i+1:03d}</span>
+                            <span style="color:#DDD; font-size:14px; margin-left:8px;">{line}</span>
+                        </div>""",
                         unsafe_allow_html=True
                     )
-                
-                st.text_area(
-                    f"대본 편집 (편 {ep_idx + 1})" if len(episodes) > 1 else "대본 편집",
-                    value=episode,
-                    height=250,
-                    key=f"auto_ep_{ep_idx}"
-                )
+                if len(preview_lines) > 10:
+                    st.caption(f"... 외 {len(preview_lines) - 10}문장 더")
             
-            st.divider()
-            
-            # 대본 저장 (원하는 편 선택)
-            if len(episodes) > 1:
-                save_ep = st.selectbox(
-                    "저장할 편 선택",
-                    [f"편 {i+1}" for i in range(len(episodes))] + ["전체 합치기"],
-                    key="save_ep_select"
-                )
-                save_idx = int(save_ep.replace("편 ", "")) - 1 if save_ep != "전체 합치기" else -1
-            else:
-                save_idx = 0
-            
-            if st.button("이 대본을 탭2에 저장", key="btn_save_auto_script", use_container_width=True):
-                if save_idx == -1:
-                    final_script = "\n".join(episodes)
-                else:
-                    final_script = st.session_state.get(f"auto_ep_{save_idx}", episodes[save_idx])
-                
-                st.session_state["script_text"] = final_script
-                raw_lines = re.split(r'(?<=[.?])\s*', final_script.strip())
-                lines = [l.strip() for l in raw_lines if l.strip() and len(l.strip()) > 2]
-                st.session_state["script_lines"] = lines
-                st.success(f"대본 저장 완료! 총 {len(lines)}개 문장(장면)으로 분리됨.")
+            if st.button("이 대본을 최종 저장", key="btn_save_auto_script", use_container_width=True):
+                final_text = st.session_state.get("auto_full_edit", raw_script)
+                st.session_state["script_text"] = final_text
+                final_lines = re.split(r'(?<=[.?])\s*', final_text.strip())
+                final_lines = [l.strip() for l in final_lines if l.strip() and len(l.strip()) > 2]
+                st.session_state["script_lines"] = final_lines
+                est = round(len(final_lines) * 7.5 / 60)
+                st.success(f"대본 저장 완료! 총 {len(final_lines)}개 문장 / 약 {est}분 분량")
+
     
     # ─── 모드2: Skywork 붙여넣기 ───
     else:

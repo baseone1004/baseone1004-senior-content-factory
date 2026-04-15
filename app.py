@@ -775,68 +775,42 @@ with tab5:
     elif not durations:
         st.warning("탭4에서 먼저 TTS 음성을 생성해주세요.")
     else:
-        st.subheader("자막 텍스트 편집")
         if not st.session_state.get("edited_sub_lines") or len(st.session_state["edited_sub_lines"]) != len(lines):
             st.session_state["edited_sub_lines"] = list(lines)
-        with st.expander("전체 자막 타이밍 보기"):
-            ct = 0.0
-            for i, line in enumerate(lines):
-                d = durations[i] if i < len(durations) else 3.0
-                st.caption(str(i+1) + " [" + str(round(ct,1)) + "s~" + str(round(ct+d,1)) + "s] " + line[:60])
-                ct += d
-        edit_mode = st.radio("편집 방식", ["개별 문장 편집", "전체 편집"], horizontal=True, key="edit_mode_radio")
-        if edit_mode == "개별 문장 편집":
-            edit_idx = st.number_input("편집할 자막 번호", min_value=1, max_value=len(st.session_state["edited_sub_lines"]), value=1, key="edit_line_num")
-            current_text = st.session_state["edited_sub_lines"][edit_idx - 1]
-            new_text = st.text_input("자막 내용 수정", value=current_text, key="single_edit_input")
-            if st.button("이 자막 저장", key="btn_save_single_sub"):
-                st.session_state["edited_sub_lines"][edit_idx - 1] = new_text.strip()
-                st.success(str(edit_idx) + "번 자막 수정 완료!")
-        else:
-            edited_all = st.text_area("자막 전체 편집", value="\n".join(st.session_state["edited_sub_lines"]), height=300, key="sub_edit_area")
-            if st.button("자막 텍스트 저장", key="btn_save_sub_text", use_container_width=True):
-                new_lines = [l.strip() for l in edited_all.split("\n") if l.strip()]
-                st.session_state["edited_sub_lines"] = new_lines
-                st.success("자막 " + str(len(new_lines)) + "줄 저장!")
-        st.divider()
         st.subheader("자막 스타일")
         ctype = st.session_state.get("content_type", "쇼츠")
         skey = "subtitle_style_shorts" if ctype == "쇼츠" else "subtitle_style_long"
         cs = st.session_state.get(skey, dict(DEFAULT_SUB_SHORTS if ctype == "쇼츠" else DEFAULT_SUB_LONG))
-        col_s, col_p = st.columns([1, 1])
-        with col_s:
+        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
+        with col_s1:
             nf = st.selectbox("글꼴", FONT_LIST, index=FONT_LIST.index(cs.get("font", FONT_LIST[0])) if cs.get("font", FONT_LIST[0]) in FONT_LIST else 0, key="sub_font")
             ns = st.slider("글자 크기", 12, 72, cs.get("size", 28), key="sub_size")
+        with col_s2:
             nc = st.color_picker("글자 색상", cs.get("color", "#FFFFFF"), key="sub_color")
             noc = st.color_picker("외곽선 색상", cs.get("outline_color", "#000000"), key="sub_outline_color")
+        with col_s3:
             now = st.slider("외곽선 두께", 0, 6, cs.get("outline_width", 2), key="sub_outline_w")
             np = st.selectbox("세로 위치", ["상단", "중앙", "하단"], index=["상단", "중앙", "하단"].index(cs.get("position", "하단")), key="sub_pos")
+        with col_s4:
             nmv = st.slider("세로 여백", 0, 100, cs.get("margin_v", 30), key="sub_margin_v")
-            nml = st.slider("왼쪽 여백", 0, 100, cs.get("margin_l", 10), key="sub_margin_l")
-            nmr = st.slider("오른쪽 여백", 0, 100, cs.get("margin_r", 10), key="sub_margin_r")
+            nml = st.slider("좌우 여백", 0, 100, cs.get("margin_l", 10), key="sub_margin_l")
+        nmr = nml
         us = {"font": nf, "size": ns, "color": nc, "outline_color": noc, "outline_width": now, "position": np, "margin_v": nmv, "margin_l": nml, "margin_r": nmr, "bg_opacity": cs.get("bg_opacity", 0.0)}
         st.session_state[skey] = us
-        with col_p:
-            st.write("미리보기")
-            if edit_mode == "개별 문장 편집":
-                ptxt = st.session_state["edited_sub_lines"][edit_idx - 1] if st.session_state.get("edited_sub_lines") else "자막 미리보기"
-            else:
-                ptxt = st.session_state["edited_sub_lines"][0] if st.session_state.get("edited_sub_lines") else "자막 미리보기"
-            if np == "상단":
-                acss = "align-items:flex-start;padding-top:" + str(nmv) + "px;"
-            elif np == "중앙":
-                acss = "align-items:center;"
-            else:
-                acss = "align-items:flex-end;padding-bottom:" + str(nmv) + "px;"
-            fe = FONT_MAP.get(nf, "NanumGothicBold")
-            ts = str(now) + "px " + str(now) + "px 0 " + noc + ",-" + str(now) + "px -" + str(now) + "px 0 " + noc + "," + str(now) + "px -" + str(now) + "px 0 " + noc + ",-" + str(now) + "px " + str(now) + "px 0 " + noc
-            ph = "<div style=" + '"' + "width:100%;height:400px;background:#1a1a1a;border-radius:12px;border:2px solid #333;display:flex;justify-content:center;" + acss + '"' + "><span style=" + '"' + "font-size:" + str(ns) + "px;color:" + nc + ";text-shadow:" + ts + ";text-align:center;padding-left:" + str(nml) + "px;padding-right:" + str(nmr) + "px;word-break:keep-all;" + '"' + ">" + ptxt + "</span></div>"
-            st.markdown(ph, unsafe_allow_html=True)
-            pli = st.number_input("미리볼 자막 번호", min_value=1, max_value=max(len(st.session_state.get("edited_sub_lines", [""])), 1), value=1, key="preview_line_num")
-            if st.session_state.get("edited_sub_lines") and 0 < pli <= len(st.session_state["edited_sub_lines"]):
-                stxt = st.session_state["edited_sub_lines"][pli - 1]
-                ph2 = "<div style=" + '"' + "width:100%;height:100px;background:#0a0a0a;border-radius:8px;border:1px solid #444;display:flex;align-items:center;justify-content:center;" + '"' + "><span style=" + '"' + "font-size:" + str(ns) + "px;color:" + nc + ";text-shadow:" + ts + ";padding:0 " + str(nml) + "px 0 " + str(nmr) + "px;" + '"' + ">" + stxt + "</span></div>"
-                st.markdown(ph2, unsafe_allow_html=True)
+        st.divider()
+        st.subheader("자막 목록 (직접 수정하세요)")
+        ts = str(now) + "px " + str(now) + "px 0 " + noc + ",-" + str(now) + "px -" + str(now) + "px 0 " + noc + "," + str(now) + "px -" + str(now) + "px 0 " + noc + ",-" + str(now) + "px " + str(now) + "px 0 " + noc
+        for i in range(len(st.session_state["edited_sub_lines"])):
+            d = durations[i] if i < len(durations) else 3.0
+            col_num, col_edit = st.columns([1, 9])
+            with col_num:
+                st.markdown("<div style=" + '"' + "padding-top:8px;color:#888;font-size:14px;" + '"' + ">" + str(i+1) + "번</div>", unsafe_allow_html=True)
+                st.caption(str(round(d, 1)) + "초")
+            with col_edit:
+                new_val = st.text_input("x", value=st.session_state["edited_sub_lines"][i], key="sub_line_" + str(i), label_visibility="collapsed")
+                st.session_state["edited_sub_lines"][i] = new_val
+                preview_h = "<div style=" + '"' + "background:#1a1a1a;border-radius:6px;padding:8px;text-align:center;margin-bottom:4px;" + '"' + "><span style=" + '"' + "font-size:" + str(ns) + "px;color:" + nc + ";text-shadow:" + ts + ";" + '"' + ">" + new_val + "</span></div>"
+                st.markdown(preview_h, unsafe_allow_html=True)
         st.divider()
         st.subheader("SRT 자막 파일 생성")
         if st.button("SRT 자막 생성", key="btn_gen_srt", use_container_width=True):
@@ -848,6 +822,7 @@ with tab5:
             with st.expander("SRT 내용 보기"):
                 st.text(st.session_state["srt_content"])
             st.download_button("SRT 파일 다운로드", data=st.session_state["srt_content"], file_name="subtitles.srt", mime="text/plain", key="btn_dl_srt")
+
 
 with tab6:
     st.header("최종 합치기")

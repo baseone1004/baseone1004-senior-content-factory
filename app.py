@@ -777,7 +777,7 @@ with tab5:
         st.warning("탭4에서 먼저 TTS 음성을 생성해주세요.")
     else:
         st.subheader("자막 텍스트 편집")
-        st.info("자막 내용을 직접 수정할 수 있습니다. 수정 후 아래 저장 버튼을 누르세요.")
+        st.info("자막 내용을 직접 수정할 수 있습니다.")
 
         if not st.session_state.get("edited_sub_lines") or len(st.session_state["edited_sub_lines"]) != len(lines):
             st.session_state["edited_sub_lines"] = list(lines)
@@ -799,7 +799,7 @@ with tab5:
         if st.button("자막 텍스트 저장", key="btn_save_sub_text", use_container_width=True):
             new_lines = [l.strip() for l in edited_all.split("\n") if l.strip()]
             st.session_state["edited_sub_lines"] = new_lines
-            st.success(f"자막 {len(new_lines)}줄 저장 완료!")
+            st.success(f"자막 {len(new_lines)}줄 저장!")
 
         st.divider()
         st.subheader("자막 스타일")
@@ -840,74 +840,24 @@ with tab5:
             preview_text = st.session_state["edited_sub_lines"][0] if st.session_state.get("edited_sub_lines") else "자막 미리보기"
 
             if new_position == "상단":
-                align_css = "top: 10%;"
+                align_css = "align-items: flex-start; padding-top: " + str(new_margin_v) + "px;"
             elif new_position == "중앙":
-                align_css = "top: 50%; transform: translateY(-50%);"
+                align_css = "align-items: center;"
             else:
-                align_css = "bottom: 10%;"
+                align_css = "align-items: flex-end; padding-bottom: " + str(new_margin_v) + "px;"
 
             font_eng = FONT_MAP.get(new_font, "NanumGothicBold")
-            text_shadow = f"{new_outline_width}px {new_outline_width}px 0 {new_outline_color}, -{new_outline_width}px -{new_outline_width}px 0 {new_outline_color}, {new_outline_width}px -{new_outline_width}px 0 {new_outline_color}, -{new_outline_width}px {new_outline_width}px 0 {new_outline_color}"
+            ow = new_outline_width
+            oc = new_outline_color
+            text_shadow = f"{ow}px {ow}px 0 {oc}, -{ow}px -{ow}px 0 {oc}, {ow}px -{ow}px 0 {oc}, -{ow}px {ow}px 0 {oc}"
 
-            preview_html = f"""
-            <div style="
-                position: relative;
-                width: 100%;
-                height: 400px;
-                background: #1a1a1a;
-                border-radius: 12px;
-                overflow: hidden;
-                border: 2px solid #333;
-            ">
-                <div style="
-                    position: absolute;
-                    width: 100%;
-                    text-align: center;
-                    {align_css}
-                    padding-left: {new_margin_l}px;
-                    padding-right: {new_margin_r}px;
-                    margin-top: {new_margin_v if new_position == '상단' else 0}px;
-                    margin-bottom: {new_margin_v if new_position == '하단' else 0}px;
-                    box-sizing: border-box;
-                ">
-                    <span style="
-                        font-family: '{font_eng}', sans-serif;
-                        font-size: {new_size}px;
-                        color: {new_color};
-                        text-shadow: {text_shadow};
-                        line-height: 1.4;
-                        word-break: keep-all;
-                    ">{preview_text}</span>
-                </div>
-            </div>
-            """
+            preview_html = f'''<div style="width:100%;height:400px;background:#1a1a1a;border-radius:12px;border:2px solid #333;display:flex;justify-content:center;{align_css}"><span style="font-family:sans-serif;font-size:{new_size}px;color:{new_color};text-shadow:{text_shadow};text-align:center;padding-left:{new_margin_l}px;padding-right:{new_margin_r}px;word-break:keep-all;">{preview_text}</span></div>'''
             st.markdown(preview_html, unsafe_allow_html=True)
 
             preview_line_idx = st.number_input("미리볼 자막 번호", min_value=1, max_value=max(len(st.session_state.get("edited_sub_lines", [""])), 1), value=1, key="preview_line_num")
             if st.session_state.get("edited_sub_lines") and 0 < preview_line_idx <= len(st.session_state["edited_sub_lines"]):
-                selected_preview = st.session_state["edited_sub_lines"][preview_line_idx - 1]
-                preview_html2 = f"""
-                <div style="
-                    position: relative;
-                    width: 100%;
-                    height: 120px;
-                    background: #0a0a0a;
-                    border-radius: 8px;
-                    overflow: hidden;
-                    border: 1px solid #444;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                ">
-                    <span style="
-                        font-family: '{font_eng}', sans-serif;
-                        font-size: {new_size}px;
-                        color: {new_color};
-                        text-shadow: {text_shadow};
-                        padding: 0 {new_margin_l}px 0 {new_margin_r}px;
-                    ">{selected_preview}</span>
-                </div>
-                """
+                sel_text = st.session_state["edited_sub_lines"][preview_line_idx - 1]
+                preview_html2 = f'''<div style="width:100%;height:100px;background:#0a0a0a;border-radius:8px;border:1px solid #444;display:flex;align-items:center;justify-content:center;"><span style="font-family:sans-serif;font-size:{new_size}px;color:{new_color};text-shadow:{text_shadow};padding:0 {new_margin_l}px 0 {new_margin_r}px;">{sel_text}</span></div>'''
                 st.markdown(preview_html2, unsafe_allow_html=True)
 
         st.divider()
@@ -965,8 +915,46 @@ with tab6:
         style_key = "subtitle_style_shorts" if content_type == "쇼츠" else "subtitle_style_long"
         sub_style = st.session_state.get(style_key, {})
 
-        st.info(f"영상 {len(videos)}개 + TTS {ok_audio}개 + SRT 자막 → 최종 영상을 합칩니다.")
+        st.info(f"영상 {len(videos)}개 + TTS {ok_audio}개 + SRT 자막으로 최종 영상을 합칩니다.")
 
         if st.button("최종 영상 합치기", key="btn_merge", use_container_width=True):
-            with st.spinner("영상을 합치는 중입니다. 잠시 기다려주세요..."):
-                result, err = merge_final<span class="cursor">█</span>
+            with st.spinner("영상을 합치는 중입니다..."):
+                result, err = merge_final_video(videos, audio_data, srt, sub_style)
+                if err:
+                    st.error(err)
+                elif result:
+                    st.session_state["final_video"] = result
+                    st.success(f"최종 영상 완성! ({len(result)/1024/1024:.1f}MB)")
+
+        if st.session_state.get("final_video"):
+            st.divider()
+            st.subheader("최종 영상")
+            st.video(st.session_state["final_video"])
+            st.download_button(
+                "최종 영상 다운로드 (MP4)",
+                data=st.session_state["final_video"],
+                file_name=f"final_{datetime.now().strftime('%Y%m%d_%H%M%S')}.mp4",
+                mime="video/mp4",
+                key="btn_dl_final"
+            )
+            st.divider()
+            if st.button("작업 데이터 JSON 내보내기", key="btn_export_json"):
+                export_data = {
+                    "topic": st.session_state.get("selected_topic", ""),
+                    "content_type": st.session_state.get("content_type", ""),
+                    "script_lines": st.session_state.get("script_lines", []),
+                    "edited_sub_lines": st.session_state.get("edited_sub_lines", []),
+                    "tts_durations": st.session_state.get("tts_durations", []),
+                    "srt_content": st.session_state.get("srt_content", ""),
+                    "subtitle_style": sub_style,
+                    "video_count": len(videos),
+                    "created_at": datetime.now().isoformat(),
+                }
+                json_str = json.dumps(export_data, ensure_ascii=False, indent=2)
+                st.download_button(
+                    "JSON 다운로드",
+                    data=json_str,
+                    file_name=f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
+                    mime="application/json",
+                    key="btn_dl_json"
+                )

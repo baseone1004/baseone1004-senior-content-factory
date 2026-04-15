@@ -288,42 +288,71 @@ def generate_srt(lines, durations):
     return srt
 
 
-def merge_video_audio_subtitle(video_bytes, audio_bytes_list, srt_content, sub_style):
+def merge_video_audio_subtitle(video_list, audio_bytes_list, srt_content, sub_style):
     try:
         work_dir = tempfile.mkdtemp()
-        video_path = os.path.join(work_dir, "input_video.mp4")
-        audio_path = os.path.join(work_dir, "combined_audio.mp3")
-        srt_path = os.path.join(work_dir, "subtitles.srt")
-        output_path = os.path.join(work_dir, "final_output.mp4")
 
-        with open(video_path, "wb") as f:
-            f.write(video_bytes)
+        # 1. 개별 영상+음성 합치기
+        segment_paths = []
+        for i, audio_bytes in enumerate(audio_bytes_list):
+            if audio_bytes is None:
+                continue
+            vid_idx = min(i, len(video_list) - 1)
+            vid_bytes = video_list[vid_idx]["bytes"]
 
-        concat_list_path = os.path.join(work_dir, "audio_list.txt")
-        audio_files = []
-        for i, ab in enumerate(audio_bytes_list):
-            ap = os.path.join(work_dir, f"audio_{i:04d}.mp3")
-            with open(ap, "wb") as f:
-                f.write(ab)
-            audio_files.append(ap)
+            vid_path = os.path.join(work_dir, f"vid_{i:04d}.mp4")
+            aud_path = os.path.join(work_dir, f"aud_{i:04d}.mp3")
+            seg_path = os.path.join(work_dir, f"seg_{i:04d}.mp4")
 
-        with open(concat_list_path, "w") as f:
-            for ap in audio_files:
-                f.write(f"file '{ap}'\n")
+            with open(vid_path, "wb") as f:
+                f.write(vid_bytes)
+            with open(aud_path, "wb") as f:
+                f.write(audio_bytes)
 
+            # 영상 길이를 음성 길이에 맞추고 합치기
+            subprocess.run(
+                ["ffmpeg", "-y",
+                 "-i", vid_path,
+                 "-i", aud_path,
+                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+                 "-c:a", "aac", "-b:a", "192k",
+                 "-shortest",
+                 seg_path],
+                capture_output=True, timeout=60
+            )
+
+            if os.path.exists(seg_path):
+                segment_paths.append(seg_path)
+
+        if not segment_paths:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            return None, "오류: 합칠 수 있는 영상 세그먼트가 없습니다."
+
+        # 2. 모든 세그먼트 이어붙이기
+        concat_list = os.path.join(work_dir, "concat_list.txt")
+        with open(concat_list, "w") as f:
+            for sp in segment_paths:
+                f.write(f"file '{sp}'\n")
+
+        merged_path = os.path.join(work_dir, "merged.mp4")
         subprocess.run(
             ["ffmpeg", "-y", "-f", "concat", "-safe", "0",
-             "-i", concat_list_path, "-c", "copy", audio_path],
-            capture_output=True, timeout=120
+             "-i", concat_list,
+             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+             "-c:a", "aac", "-b:a", "192k",
+             merged_path],
+            capture_output=True, timeout=300
         )
+
+        # 3. 자막 입히기
+        srt_path = os.path.join(work_dir, "subtitles.srt")
+        output_path = os.path.join(work_dir, "final_output.mp4")
 
         with open(srt_path, "w", encoding="utf-8") as f:
             f.write(srt_content)
 
         font_name = FONT_MAP.get(sub_style.get("font", "나눔고딕 볼드"), "NanumGothicBold")
         font_size = sub_style.get("size", 28)
-        font_color = sub_style.get("color", "#FFFFFF").replace("#", "&H00") 
-        outline_color = sub_style.get("outline_color", "#000000").replace("#", "&H00")
         outline_width = sub_style.get("outline_width", 2)
 
         pos = sub_style.get("position", "하단")
@@ -337,12 +366,13 @@ def merge_video_audio_subtitle(video_bytes, audio_bytes_list, srt_content, sub_s
             alignment = 2
             margin_v = 30
 
+        # srt_path 안의 역슬래시를 이스케이프
+        srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
+
         subtitle_filter = (
-            f"subtitles={srt_path}:force_style='"
+            f"subtitles='{srt_escaped}':force_style='"
             f"FontName={font_name},"
             f"FontSize={font_size},"
-            f"PrimaryColour={font_color},"
-            f"OutlineColour={outline_color},"
             f"Outline={outline_width},"
             f"Alignment={alignment},"
             f"MarginV={margin_v}'"
@@ -350,12 +380,10 @@ def merge_video_audio_subtitle(video_bytes, audio_bytes_list, srt_content, sub_s
 
         subprocess.run(
             ["ffmpeg", "-y",
-             "-i", video_path,
-             "-i", audio_path,
+             "-i", merged_path,
              "-vf", subtitle_filter,
              "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-             "-c:a", "aac", "-b:a", "192k",
-             "-shortest",
+             "-c:a", "copy",
              output_path],
             capture_output=True, timeout=300
         )
@@ -370,6 +398,7 @@ def merge_video_audio_subtitle(video_bytes, audio_bytes_list, srt_content, sub_s
             return None, "오류: 최종 영상 생성 실패"
     except Exception as e:
         return None, f"오류: {str(e)}"
+
 
 
 # ═══════════════════════════════════════════
@@ -936,29 +965,65 @@ with tab2:
 # ═══════════════════════════════════════════
 with tab3:
     st.header("영상 업로드")
-    st.info("외부에서 만든 영상 파일(mp4)을 업로드하세요. 이 영상에 TTS 음성과 자막을 입혀서 최종 영상을 만듭니다.")
 
-    video_upload = st.file_uploader(
-        "영상 파일 업로드 (mp4)",
-        type=["mp4", "mov", "avi", "mkv"],
-        key="video_upload"
-    )
+    num_lines = len(st.session_state.get("script_lines", []))
+    if num_lines == 0:
+        st.warning("탭2에서 먼저 대본을 입력하고 저장해주세요.")
+    else:
+        st.info(f"대본 문장 수: {num_lines}개 → 영상 {num_lines}개가 필요합니다. 장면별로 변환한 영상(mp4)을 업로드하세요.")
 
-    if video_upload:
-        video_bytes = video_upload.getvalue()
-        st.session_state["uploaded_videos"] = [{"name": video_upload.name, "bytes": video_bytes}]
-        st.success(f"영상 업로드 완료: {video_upload.name} ({len(video_bytes) / 1024 / 1024:.1f}MB)")
-        st.video(video_bytes)
-
-    if st.session_state.get("uploaded_videos"):
-        v = st.session_state["uploaded_videos"][0]
-        st.markdown(
-            f"""<div style="background:#1a2e1a; border:2px solid #4CAF50; border-radius:8px; padding:12px; margin-top:12px;">
-                <span style="color:#88CC88;">현재 업로드된 영상:</span>
-                <span style="color:#FFFFFF; font-weight:bold; margin-left:8px;">{v['name']} ({len(v['bytes']) / 1024 / 1024:.1f}MB)</span>
-            </div>""",
-            unsafe_allow_html=True
+        video_upload = st.file_uploader(
+            "영상 파일 선택 (복수 선택 가능)",
+            type=["mp4", "mov", "avi", "mkv"],
+            accept_multiple_files=True,
+            key="video_upload"
         )
+
+        if video_upload:
+            if st.button("업로드한 영상 저장", key="btn_save_videos", use_container_width=True):
+                uploaded = []
+                for f in sorted(video_upload, key=lambda x: x.name):
+                    uploaded.append({"name": f.name, "bytes": f.getvalue()})
+                st.session_state["uploaded_videos"] = uploaded
+                st.success(f"{len(uploaded)}개 영상 저장됨.")
+                if len(uploaded) < num_lines:
+                    st.warning(f"영상 {len(uploaded)}개 < 문장 {num_lines}개. 부족분은 마지막 영상이 반복됩니다.")
+                elif len(uploaded) > num_lines:
+                    st.warning(f"영상 {len(uploaded)}개 > 문장 {num_lines}개. 초과분은 무시됩니다.")
+
+        if st.session_state.get("uploaded_videos"):
+            st.divider()
+            videos = st.session_state["uploaded_videos"]
+            total_size = sum(len(v["bytes"]) for v in videos) / 1024 / 1024
+
+            st.markdown(
+                f"""<div style="background:#1a2e1a; border:2px solid #4CAF50; border-radius:8px; padding:12px;">
+                    <span style="color:#88CC88;">저장된 영상:</span>
+                    <span style="color:#FFFFFF; font-weight:bold; margin-left:8px;">{len(videos)}개 / {total_size:.1f}MB</span>
+                    <span style="color:#AAAAAA; margin-left:12px;">(필요: {num_lines}개)</span>
+                </div>""",
+                unsafe_allow_html=True
+            )
+
+            with st.expander("영상 목록 및 미리보기"):
+                for i, v in enumerate(videos):
+                    size_mb = len(v["bytes"]) / 1024 / 1024
+                    line_text = ""
+                    if i < num_lines:
+                        line_text = st.session_state["script_lines"][i]
+
+                    st.markdown(
+                        f"""<div style="display:flex; align-items:center; padding:6px 0; border-bottom:1px solid #333;">
+                            <span style="color:#888; min-width:80px; font-size:13px;">장면 {i+1:03d}</span>
+                            <span style="color:#FFFFFF; font-size:13px; min-width:150px;">{v['name']} ({size_mb:.1f}MB)</span>
+                            <span style="color:#AAA; font-size:12px; margin-left:8px;">{line_text[:40]}{'...' if len(line_text) > 40 else ''}</span>
+                        </div>""",
+                        unsafe_allow_html=True
+                    )
+
+                    if st.checkbox(f"장면 {i+1} 미리보기", key=f"preview_vid_{i}", value=False):
+                        st.video(v["bytes"])
+
 
 # ═══════════════════════════════════════════
 # 탭4: TTS 음성
@@ -1203,8 +1268,7 @@ with tab6:
             unsafe_allow_html=True
         )
 
-        if st.button("최종 영상 합치기", key="btn_final_merge", use_container_width=True):
-            video_bytes = videos[0]["bytes"]
+                if st.button("최종 영상 합치기", key="btn_final_merge", use_container_width=True):
             valid_audio = [a for a in audio_data if a is not None]
 
             if not valid_audio:
@@ -1216,9 +1280,9 @@ with tab6:
                 else:
                     sub_style = st.session_state["subtitle_style_long"]
 
-                with st.spinner("최종 영상 합치는 중... (1~5분 소요)"):
+                with st.spinner("최종 영상 합치는 중... (영상 수에 따라 1~10분 소요)"):
                     final_bytes, err = merge_video_audio_subtitle(
-                        video_bytes, valid_audio, srt_content, sub_style
+                        videos, valid_audio, srt_content, sub_style
                     )
 
                 if err:
@@ -1226,6 +1290,7 @@ with tab6:
                 else:
                     st.session_state["final_video"] = final_bytes
                     st.success(f"최종 영상 생성 완료! ({len(final_bytes) / 1024 / 1024:.1f}MB)")
+
 
     if st.session_state.get("final_video"):
         st.divider()

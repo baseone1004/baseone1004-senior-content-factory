@@ -13,9 +13,7 @@ from pathlib import Path
 
 st.set_page_config(page_title="시니어 콘텐츠 공장 v5.0", layout="wide")
 
-# ═══════════════════════════════════════════
-# API 키 로드
-# ═══════════════════════════════════════════
+
 def load_key(name):
     v = os.environ.get(name, "")
     if not v:
@@ -25,23 +23,17 @@ def load_key(name):
             v = ""
     return v.strip() if v else ""
 
+
 GEMINI_API_KEY = load_key("GEMINI_API_KEY")
 INWORLD_API_KEY = load_key("INWORLD_API_KEY")
 
-# ═══════════════════════════════════════════
-# Inworld TTS 한국어 음성 목록
-# ═══════════════════════════════════════════
 VOICE_OPTIONS = {
-    "서윤 (한국어 여성)": "서윤",
-    "Hyunwoo (한국어 남성)": "Hyunwoo",
-    "Minji (한국어 여성)": "Minji",
-    "Seojun (한국어 남성)": "Seojun",
-    "Yoona (한국어 여성)": "Yoona",
+    "민지 (활기찬 여성)": "Minji",
+    "윤아 (차분한 여성)": "Yoona",
+    "현우 (젊은 남성)": "Hyunwoo",
+    "서준 (성숙한 남성)": "Seojun",
 }
 
-# ═══════════════════════════════════════════
-# 폰트 설정
-# ═══════════════════════════════════════════
 FONT_MAP = {
     "나눔고딕": "NanumGothic",
     "나눔고딕 볼드": "NanumGothicBold",
@@ -66,9 +58,6 @@ FONT_MAP = {
 }
 FONT_LIST = list(FONT_MAP.keys())
 
-# ═══════════════════════════════════════════
-# 자막 기본 스타일
-# ═══════════════════════════════════════════
 DEFAULT_SUB_LONG = {
     "font": "나눔고딕 볼드",
     "size": 28,
@@ -94,9 +83,6 @@ DEFAULT_SUB_SHORTS = {
     "bg_opacity": 0.0,
 }
 
-# ═══════════════════════════════════════════
-# 세션 상태 초기화
-# ═══════════════════════════════════════════
 defaults = {
     "selected_topic": "",
     "selected_category": "경제/사회",
@@ -121,9 +107,7 @@ for k, v in defaults.items():
     if k not in st.session_state:
         st.session_state[k] = v
 
-# ═══════════════════════════════════════════
-# 유틸리티 함수
-# ═══════════════════════════════════════════
+
 def clean_special(text):
     if not text:
         return ""
@@ -206,19 +190,21 @@ def safe_generate(prompt, system_prompt="", max_tokens=4096):
     return f"오류: 모든 모델에서 실패했습니다. 마지막 오류: {last_error}"
 
 
-def inworld_tts(text, voice_id="서윤", model_id="inworld-tts-1.5-max"):
+def inworld_tts(text, voice_id="Minji", model_id="inworld-tts-1.5-max"):
     if not INWORLD_API_KEY:
         return None, "오류: INWORLD_API_KEY가 설정되지 않았습니다."
     url = "https://api.inworld.ai/tts/v1/voice"
+    headers = {
+        "Authorization": f"Basic {INWORLD_API_KEY}",
+        "Content-Type": "application/json"
+    }
     payload = {
         "text": text[:2000],
         "voiceId": voice_id,
         "modelId": model_id,
-        "audioConfig": {"audioEncoding": "MP3", "sampleRateHertz": 24000}
     }
     try:
-        resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"},
-                             auth=("", INWORLD_API_KEY), timeout=30)
+        resp = requests.post(url, headers=headers, json=payload, timeout=120)
         if resp.status_code == 200:
             data = resp.json()
             audio_b64 = data.get("audioContent", "")
@@ -226,7 +212,7 @@ def inworld_tts(text, voice_id="서윤", model_id="inworld-tts-1.5-max"):
                 return base64.b64decode(audio_b64), None
             return None, "오류: 응답에 audioContent가 없습니다."
         else:
-            return None, f"오류: Inworld API {resp.status_code} - {resp.text[:200]}"
+            return None, f"오류: Inworld API {resp.status_code} - {resp.text[:300]}"
     except Exception as e:
         return None, f"오류: {str(e)}"
 
@@ -373,9 +359,6 @@ def merge_final_video(video_list, audio_bytes_list, srt_content, sub_style):
         return None, f"오류: {str(e)}"
 
 
-# ═══════════════════════════════════════════
-# 사이드바
-# ═══════════════════════════════════════════
 with st.sidebar:
     st.header("설정")
     st.subheader("API 연결 상태")
@@ -411,9 +394,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "4. TTS 음성", "5. 자막 편집", "6. 최종 합치기",
 ])
 
-# ═══════════════════════════════════════════
-# 탭1: 주제 추천
-# ═══════════════════════════════════════════
 with tab1:
     st.header("주제 추천")
     st.info("카테고리를 선택하면 최신 뉴스를 검색하고, Gemini가 떡상 확률과 함께 10개 주제를 추천합니다.")
@@ -549,9 +529,6 @@ with tab1:
                 {info_line}
             </div>""", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════
-# 탭2: 대본 입력
-# ═══════════════════════════════════════════
 with tab2:
     st.header("대본 입력")
     if st.session_state.get("selected_topic"):
@@ -627,7 +604,7 @@ with tab2:
                             status.text(f"파트 {p+1} 실패")
                             break
                         all_parts.append(clean_script(result))
-                        progress.progress((p+1) / total_parts)
+                        progress.progress((p + 1) / total_parts)
                         if p < total_parts - 1:
                             time.sleep(3)
                     if all_parts:
@@ -676,9 +653,6 @@ with tab2:
                     <span style="color:#888; font-size:12px;">{i+1:03d}</span>
                     <span style="color:#DDD; font-size:14px; margin-left:8px;">{line}</span></div>""", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════
-# 탭3: 영상 업로드
-# ═══════════════════════════════════════════
 with tab3:
     st.header("영상 업로드")
     num_lines = len(st.session_state.get("script_lines", []))
@@ -716,16 +690,13 @@ with tab3:
                         <span style="color:#FFF; margin-left:8px;">{v['name']} ({sz:.1f}MB)</span>
                         <span style="color:#AAA; margin-left:8px; font-size:12px;">{lt[:40]}</span></div>""", unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════
-# 탭4: TTS 음성
-# ═══════════════════════════════════════════
 with tab4:
     st.header("TTS 음성 생성")
     lines = st.session_state.get("script_lines", [])
     if not lines:
         st.warning("탭2에서 먼저 대본을 저장해주세요.")
     elif not INWORLD_API_KEY:
-        st.error("Inworld API 키가 없습니다.")
+        st.error("Inworld API 키가 없습니다. Secrets에 INWORLD_API_KEY를 추가하세요.")
     else:
         st.info(f"대본 {len(lines)}문장에 대해 TTS 음성을 생성합니다.")
         col_v1, col_v2 = st.columns(2)
@@ -767,7 +738,7 @@ with tab4:
                     fail += 1
                     audio_data.append(None)
                     durations.append(3.0)
-                progress.progress((i+1) / len(lines))
+                progress.progress((i + 1) / len(lines))
                 if i < len(lines) - 1:
                     time.sleep(0.3)
 
@@ -795,9 +766,6 @@ with tab4:
                     if a:
                         st.audio(a, format="audio/mp3")
 
-# ═══════════════════════════════════════════
-# 탭5: 자막 편집
-# ═══════════════════════════════════════════
 with tab5:
     st.header("자막 편집")
     lines = st.session_state.get("script_lines", [])
@@ -810,7 +778,6 @@ with tab5:
     else:
         st.info("TTS 음성 길이에 맞춰 자막이 자동 싱크됩니다. 자막 텍스트와 스타일을 수정할 수 있습니다.")
 
-        # 자막 텍스트 수동 편집
         st.subheader("자막 텍스트 편집")
         if not st.session_state.get("edited_sub_lines") or len(st.session_state["edited_sub_lines"]) != len(lines):
             st.session_state["edited_sub_lines"] = list(lines)
@@ -832,7 +799,6 @@ with tab5:
 
         sub_lines = st.session_state["edited_sub_lines"]
 
-        # 자막 타이밍 확인
         st.subheader("자막 타이밍 (자동 싱크)")
         current_time = 0.0
         with st.expander("전체 자막 타이밍 보기"):
@@ -848,7 +814,6 @@ with tab5:
                     <span style="color:#DDD; margin-left:8px;">{line}</span></div>""", unsafe_allow_html=True)
                 current_time = et
 
-        # 자막 스타일 설정
         st.divider()
         st.subheader("자막 스타일")
 
@@ -898,7 +863,6 @@ with tab5:
                     </div>
                 </div>""", unsafe_allow_html=True)
 
-        # SRT 생성
         srt_content = generate_srt(sub_lines, durations)
         st.session_state["srt_content"] = srt_content
 
@@ -907,9 +871,6 @@ with tab5:
         with st.expander("SRT 미리보기"):
             st.code(srt_content)
 
-# ═══════════════════════════════════════════
-# 탭6: 최종 합치기
-# ═══════════════════════════════════════════
 with tab6:
     st.header("최종 합치기")
     lines = st.session_state.get("script_lines", [])

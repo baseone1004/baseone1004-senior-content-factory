@@ -775,103 +775,159 @@ with tab5:
     elif not durations:
         st.warning("탭4에서 먼저 TTS 음성을 생성해주세요.")
     else:
+        ct = st.session_state.get("content_type", "쇼츠")
+        if ct == "쇼츠":
+            sub_style = st.session_state.get("subtitle_style_shorts", dict(DEFAULT_SUB_SHORTS))
+        else:
+            sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
+
         if not st.session_state.get("edited_sub_lines") or len(st.session_state["edited_sub_lines"]) != len(lines):
             st.session_state["edited_sub_lines"] = list(lines)
-        st.subheader("자막 스타일")
-        ctype = st.session_state.get("content_type", "쇼츠")
-        skey = "subtitle_style_shorts" if ctype == "쇼츠" else "subtitle_style_long"
-        cs = st.session_state.get(skey, dict(DEFAULT_SUB_SHORTS if ctype == "쇼츠" else DEFAULT_SUB_LONG))
+
+        st.subheader("자막 스타일 설정")
         col_s1, col_s2, col_s3, col_s4 = st.columns(4)
         with col_s1:
-            nf = st.selectbox("글꼴", FONT_LIST, index=FONT_LIST.index(cs.get("font", FONT_LIST[0])) if cs.get("font", FONT_LIST[0]) in FONT_LIST else 0, key="sub_font")
-            ns = st.slider("글자 크기", 12, 72, cs.get("size", 28), key="sub_size")
+            sel_font = st.selectbox("글꼴", FONT_LIST, index=FONT_LIST.index(sub_style.get("font", FONT_LIST[0])) if sub_style.get("font", FONT_LIST[0]) in FONT_LIST else 0, key="sub_font")
+            sub_style["font"] = sel_font
         with col_s2:
-            nc = st.color_picker("글자 색상", cs.get("color", "#FFFFFF"), key="sub_color")
-            noc = st.color_picker("외곽선 색상", cs.get("outline_color", "#000000"), key="sub_outline_color")
+            sub_style["size"] = st.slider("글자 크기", 12, 60, sub_style.get("size", 28), key="sub_size")
         with col_s3:
-            now = st.slider("외곽선 두께", 0, 6, cs.get("outline_width", 2), key="sub_outline_w")
-            np = st.selectbox("세로 위치", ["상단", "중앙", "하단"], index=["상단", "중앙", "하단"].index(cs.get("position", "하단")), key="sub_pos")
+            sub_style["color"] = st.color_picker("글자 색상", sub_style.get("color", "#FFFFFF"), key="sub_color")
         with col_s4:
-            nmv = st.slider("세로 여백", 0, 100, cs.get("margin_v", 30), key="sub_margin_v")
-            nml = st.slider("좌우 여백", 0, 100, cs.get("margin_l", 10), key="sub_margin_l")
-        nmr = nml
-        us = {"font": nf, "size": ns, "color": nc, "outline_color": noc, "outline_width": now, "position": np, "margin_v": nmv, "margin_l": nml, "margin_r": nmr, "bg_opacity": cs.get("bg_opacity", 0.0)}
-        st.session_state[skey] = us
-        st.divider()
-        st.subheader("자막 목록 (직접 수정하세요)")
-        ts = str(now) + "px " + str(now) + "px 0 " + noc + ",-" + str(now) + "px -" + str(now) + "px 0 " + noc + "," + str(now) + "px -" + str(now) + "px 0 " + noc + ",-" + str(now) + "px " + str(now) + "px 0 " + noc
-        for i in range(len(st.session_state["edited_sub_lines"])):
-            d = durations[i] if i < len(durations) else 3.0
-            col_num, col_edit = st.columns([1, 9])
-            with col_num:
-                st.markdown("<div style=" + '"' + "padding-top:8px;color:#888;font-size:14px;" + '"' + ">" + str(i+1) + "번</div>", unsafe_allow_html=True)
-                st.caption(str(round(d, 1)) + "초")
-            with col_edit:
-                new_val = st.text_input("x", value=st.session_state["edited_sub_lines"][i], key="sub_line_" + str(i), label_visibility="collapsed")
-                st.session_state["edited_sub_lines"][i] = new_val
-                preview_h = "<div style=" + '"' + "background:#1a1a1a;border-radius:6px;padding:8px;text-align:center;margin-bottom:4px;" + '"' + "><span style=" + '"' + "font-size:" + str(ns) + "px;color:" + nc + ";text-shadow:" + ts + ";" + '"' + ">" + new_val + "</span></div>"
-                st.markdown(preview_h, unsafe_allow_html=True)
-        st.divider()
-        st.subheader("SRT 자막 파일 생성")
-        if st.button("SRT 자막 생성", key="btn_gen_srt", use_container_width=True):
-            sub_lines = st.session_state.get("edited_sub_lines", lines)
-            srt = generate_srt(sub_lines, durations)
-            st.session_state["srt_content"] = srt
-            st.success("SRT 자막 생성 완료!")
-        if st.session_state.get("srt_content"):
-            with st.expander("SRT 내용 보기"):
-                st.text(st.session_state["srt_content"])
-            st.download_button("SRT 파일 다운로드", data=st.session_state["srt_content"], file_name="subtitles.srt", mime="text/plain", key="btn_dl_srt")
+            sub_style["outline_width"] = st.slider("외곽선 두께", 0, 6, sub_style.get("outline_width", 2), key="sub_outline")
 
+        col_s5, col_s6, col_s7, col_s8 = st.columns(4)
+        with col_s5:
+            sub_style["outline_color"] = st.color_picker("외곽선 색상", sub_style.get("outline_color", "#000000"), key="sub_outline_color")
+        with col_s6:
+            pos_options = ["상단", "중앙", "하단"]
+            pos_idx = pos_options.index(sub_style.get("position", "하단")) if sub_style.get("position", "하단") in pos_options else 2
+            sub_style["position"] = st.selectbox("위치", pos_options, index=pos_idx, key="sub_position")
+        with col_s7:
+            sub_style["margin_v"] = st.slider("상하 여백", 0, 100, sub_style.get("margin_v", 30), key="sub_margin_v")
+        with col_s8:
+            sub_style["bg_opacity"] = st.slider("배경 투명도", 0.0, 1.0, sub_style.get("bg_opacity", 0.5), step=0.1, key="sub_bg_opacity")
+
+        if ct == "쇼츠":
+            st.session_state["subtitle_style_shorts"] = sub_style
+        else:
+            st.session_state["subtitle_style_long"] = sub_style
+
+        st.divider()
+        st.subheader("자막 미리보기")
+
+        preview_idx = st.slider("미리볼 자막 번호", 1, len(lines), 1, key="preview_idx") - 1
+        preview_text = st.session_state["edited_sub_lines"][preview_idx] if preview_idx < len(st.session_state["edited_sub_lines"]) else ""
+        preview_dur = durations[preview_idx] if preview_idx < len(durations) else 3.0
+
+        pos_val = sub_style.get("position", "하단")
+        if pos_val == "상단":
+            vert_align = "flex-start"
+            pad_area = "padding-top:" + str(sub_style.get("margin_v", 30)) + "px;"
+        elif pos_val == "중앙":
+            vert_align = "center"
+            pad_area = ""
+        else:
+            vert_align = "flex-end"
+            pad_area = "padding-bottom:" + str(sub_style.get("margin_v", 30)) + "px;"
+
+        bg_r = int(sub_style.get("outline_color", "#000000")[1:3], 16)
+        bg_g = int(sub_style.get("outline_color", "#000000")[3:5], 16)
+        bg_b = int(sub_style.get("outline_color", "#000000")[5:7], 16)
+        bg_a = sub_style.get("bg_opacity", 0.5)
+
+        outline_w = sub_style.get("outline_width", 2)
+        oc = sub_style.get("outline_color", "#000000")
+        shadow_str = oc + " " + str(outline_w) + "px " + str(outline_w) + "px 0px, " + oc + " -" + str(outline_w) + "px -" + str(outline_w) + "px 0px, " + oc + " " + str(outline_w) + "px -" + str(outline_w) + "px 0px, " + oc + " -" + str(outline_w) + "px " + str(outline_w) + "px 0px"
+
+        if ct == "쇼츠":
+            box_w = "250px"
+            box_h = "444px"
+        else:
+            box_w = "533px"
+            box_h = "300px"
+
+        preview_html = '<div style="width:' + box_w + ';height:' + box_h + ';background:#1a1a2e;border:2px solid #444;border-radius:8px;display:flex;align-items:' + vert_align + ';justify-content:center;' + pad_area + 'margin:0 auto;">'
+        preview_html = preview_html + '<div style="background:rgba(' + str(bg_r) + ',' + str(bg_g) + ',' + str(bg_b) + ',' + str(bg_a) + ');padding:6px 16px;border-radius:4px;max-width:90%;text-align:center;">'
+        preview_html = preview_html + '<span style="font-size:' + str(sub_style.get("size", 28)) + 'px;color:' + sub_style.get("color", "#FFFFFF") + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;">'
+        preview_html = preview_html + preview_text
+        preview_html = preview_html + '</span></div></div>'
+
+        st.markdown(preview_html, unsafe_allow_html=True)
+        st.caption(str(preview_idx + 1) + "번 자막 / " + str(round(preview_dur, 1)) + "초")
+
+        st.divider()
+        st.subheader("자막 텍스트 편집")
+
+        all_sub_text = "\n".join(st.session_state["edited_sub_lines"])
+        edited_all = st.text_area("자막 전체 편집 (한 줄에 하나씩)", value=all_sub_text, height=400, key="bulk_sub_edit")
+
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            if st.button("편집 내용 저장", key="btn_save_subs", use_container_width=True):
+                new_lines = [l.strip() for l in edited_all.split("\n") if l.strip()]
+                if len(new_lines) == 0:
+                    st.error("자막이 비어있습니다.")
+                else:
+                    st.session_state["edited_sub_lines"] = new_lines
+                    if len(new_lines) != len(durations):
+                        st.warning("자막 수(" + str(len(new_lines)) + ")와 음성 수(" + str(len(durations)) + ")가 다릅니다. SRT 생성 시 짧은 쪽에 맞춰집니다.")
+                    st.success("자막 저장 완료! " + str(len(new_lines)) + "개")
+        with col_b2:
+            if st.button("SRT 자막 생성", key="btn_gen_srt", use_container_width=True):
+                sub_lines = st.session_state.get("edited_sub_lines", lines)
+                min_len = min(len(sub_lines), len(durations))
+                srt = generate_srt(sub_lines[:min_len], durations[:min_len])
+                st.session_state["srt_content"] = srt
+                st.success("SRT 생성 완료!")
+
+        if st.session_state.get("srt_content"):
+            with st.expander("SRT 내용 확인"):
+                st.text(st.session_state["srt_content"][:3000])
+            st.download_button("SRT 파일 다운로드", data=st.session_state["srt_content"], file_name="subtitles.srt", mime="text/plain", key="dl_srt")
 
 with tab6:
-    st.header("최종 합치기")
+    st.header("최종 영상 합치기")
     videos = st.session_state.get("uploaded_videos", [])
     audio_data = st.session_state.get("tts_audio_data", [])
     srt = st.session_state.get("srt_content", "")
-    col_c1, col_c2, col_c3 = st.columns(3)
-    with col_c1:
-        if videos:
-            st.success("영상: " + str(len(videos)) + "개")
-        else:
-            st.error("영상: 없음")
-    with col_c2:
-        ok_audio = len([a for a in audio_data if a]) if audio_data else 0
-        if ok_audio > 0:
-            st.success("TTS: " + str(ok_audio) + "개")
-        else:
-            st.error("TTS: 없음")
-    with col_c3:
-        if srt:
-            st.success("SRT: 생성됨")
-        else:
-            st.error("SRT: 없음")
+    lines = st.session_state.get("script_lines", [])
+
+    ready = True
     if not videos:
         st.warning("탭3에서 영상을 업로드해주세요.")
-    elif not audio_data or ok_audio == 0:
+        ready = False
+    if not audio_data or not any(a for a in audio_data if a):
         st.warning("탭4에서 TTS 음성을 생성해주세요.")
-    elif not srt:
+        ready = False
+    if not srt:
         st.warning("탭5에서 SRT 자막을 생성해주세요.")
-    else:
-        ctype = st.session_state.get("content_type", "쇼츠")
-        skey = "subtitle_style_shorts" if ctype == "쇼츠" else "subtitle_style_long"
-        sub_style = st.session_state.get(skey, {})
-        st.info("영상 + TTS + SRT 자막으로 최종 영상을 합칩니다.")
-        if st.button("최종 영상 합치기", key="btn_merge", use_container_width=True):
-            with st.spinner("영상을 합치는 중입니다..."):
+        ready = False
+
+    if ready:
+        ct = st.session_state.get("content_type", "쇼츠")
+        if ct == "쇼츠":
+            sub_style = st.session_state.get("subtitle_style_shorts", dict(DEFAULT_SUB_SHORTS))
+        else:
+            sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
+
+        ok_audio = len([a for a in audio_data if a])
+        st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;">' + '<span style="color:#88CC88;">준비 상태:</span>' + '<span style="color:#FFF;font-weight:bold;margin-left:8px;">' + "영상 " + str(len(videos)) + "개 / 음성 " + str(ok_audio) + "개 / 자막 준비됨" + '</span></div>', unsafe_allow_html=True)
+
+        if st.button("최종 영상 합치기", key="btn_merge_final", use_container_width=True):
+            with st.spinner("영상을 합치고 있습니다. 잠시만 기다려주세요..."):
                 result, err = merge_final_video(videos, audio_data, srt, sub_style)
                 if err:
                     st.error(err)
                 elif result:
                     st.session_state["final_video"] = result
-                    st.success("최종 영상 완성! (" + str(round(len(result)/1024/1024, 1)) + "MB)")
+                    st.success("최종 영상 완성!")
+
         if st.session_state.get("final_video"):
             st.divider()
-            st.subheader("최종 영상")
+            st.subheader("완성된 영상")
             st.video(st.session_state["final_video"])
-            st.download_button("최종 영상 다운로드", data=st.session_state["final_video"], file_name="final_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".mp4", mime="video/mp4", key="btn_dl_final")
-            st.divider()
-            if st.button("작업 데이터 JSON 내보내기", key="btn_export_json"):
-                export_data = {"topic": st.session_state.get("selected_topic", ""), "content_type": st.session_state.get("content_type", ""), "script_lines": st.session_state.get("script_lines", []), "edited_sub_lines": st.session_state.get("edited_sub_lines", []), "tts_durations": st.session_state.get("tts_durations", []), "srt_content": st.session_state.get("srt_content", ""), "subtitle_style": sub_style, "video_count": len(videos), "created_at": datetime.now().isoformat()}
-                json_str = json.dumps(export_data, ensure_ascii=False, indent=2)
-                st.download_button("JSON 다운로드", data=json_str, file_name="project_" + datetime.now().strftime("%Y%m%d_%H%M%S") + ".json", mime="application/json", key="btn_dl_json")
+            file_size = len(st.session_state["final_video"]) / 1024 / 1024
+            st.caption("파일 크기: " + str(round(file_size, 1)) + "MB")
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.download_button("영상 다운로드", data=st.session_state["final_video"], file_name="final_" + ts + ".mp4", mime="video/mp4", key="dl_final_video", use_container_width=True)

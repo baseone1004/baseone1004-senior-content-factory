@@ -784,11 +784,20 @@ with tab5:
                 d = durations[i] if i < len(durations) else 3.0
                 st.caption(str(i+1) + " [" + str(round(ct,1)) + "s~" + str(round(ct+d,1)) + "s] " + line[:60])
                 ct += d
-        edited_all = st.text_area("자막 전체 편집", value="\n".join(st.session_state["edited_sub_lines"]), height=300, key="sub_edit_area")
-        if st.button("자막 텍스트 저장", key="btn_save_sub_text", use_container_width=True):
-            new_lines = [l.strip() for l in edited_all.split("\n") if l.strip()]
-            st.session_state["edited_sub_lines"] = new_lines
-            st.success("자막 " + str(len(new_lines)) + "줄 저장!")
+        edit_mode = st.radio("편집 방식", ["개별 문장 편집", "전체 편집"], horizontal=True, key="edit_mode_radio")
+        if edit_mode == "개별 문장 편집":
+            edit_idx = st.number_input("편집할 자막 번호", min_value=1, max_value=len(st.session_state["edited_sub_lines"]), value=1, key="edit_line_num")
+            current_text = st.session_state["edited_sub_lines"][edit_idx - 1]
+            new_text = st.text_input("자막 내용 수정", value=current_text, key="single_edit_input")
+            if st.button("이 자막 저장", key="btn_save_single_sub"):
+                st.session_state["edited_sub_lines"][edit_idx - 1] = new_text.strip()
+                st.success(str(edit_idx) + "번 자막 수정 완료!")
+        else:
+            edited_all = st.text_area("자막 전체 편집", value="\n".join(st.session_state["edited_sub_lines"]), height=300, key="sub_edit_area")
+            if st.button("자막 텍스트 저장", key="btn_save_sub_text", use_container_width=True):
+                new_lines = [l.strip() for l in edited_all.split("\n") if l.strip()]
+                st.session_state["edited_sub_lines"] = new_lines
+                st.success("자막 " + str(len(new_lines)) + "줄 저장!")
         st.divider()
         st.subheader("자막 스타일")
         ctype = st.session_state.get("content_type", "쇼츠")
@@ -809,7 +818,10 @@ with tab5:
         st.session_state[skey] = us
         with col_p:
             st.write("미리보기")
-            ptxt = st.session_state["edited_sub_lines"][0] if st.session_state.get("edited_sub_lines") else "자막 미리보기"
+            if edit_mode == "개별 문장 편집":
+                ptxt = st.session_state["edited_sub_lines"][edit_idx - 1] if st.session_state.get("edited_sub_lines") else "자막 미리보기"
+            else:
+                ptxt = st.session_state["edited_sub_lines"][0] if st.session_state.get("edited_sub_lines") else "자막 미리보기"
             if np == "상단":
                 acss = "align-items:flex-start;padding-top:" + str(nmv) + "px;"
             elif np == "중앙":

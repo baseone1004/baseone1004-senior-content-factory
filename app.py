@@ -298,7 +298,6 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
 
         tmp_dir = tempfile.mkdtemp()
 
-        # 1) 각 이미지 영상 클립을 파일로 저장
         clip_paths = []
         for i, v in enumerate(videos):
             cp = os.path.join(tmp_dir, f"clip_{i:03d}.mp4")
@@ -309,7 +308,6 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
                     f.write(v)
             clip_paths.append(cp)
 
-        # 2) 각 TTS 음성을 파일로 저장 (None 건너뛰기)
         audio_paths = []
         audio_index_map = []
         for i, a in enumerate(audio_data):
@@ -324,7 +322,6 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
         if not audio_paths:
             return None, "유효한 TTS 음성이 없습니다."
 
-        # 3) 각 클립을 TTS 길이에 맞추고 음소거 후 TTS 음성 입히기
         segment_paths = []
         for j, ap in enumerate(audio_paths):
             clip_idx = audio_index_map[j]
@@ -368,7 +365,6 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return None, "세그먼트 생성에 실패했습니다."
 
-        # 4) 모든 세그먼트를 하나로 이어 붙이기
         concat_list = os.path.join(tmp_dir, "concat.txt")
         with open(concat_list, "w") as f:
             for sp in segment_paths:
@@ -392,7 +388,6 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
             shutil.rmtree(tmp_dir, ignore_errors=True)
             return None, "영상 병합에 실패했습니다."
 
-        # 5) SRT 자막 번인
         final_path = os.path.join(tmp_dir, "final_output.mp4")
 
         if srt_text and srt_text.strip():
@@ -480,7 +475,6 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
         else:
             shutil.copy2(merged_nosub, final_path)
 
-        # 6) 결과 읽기
         if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
             with open(final_path, "rb") as f:
                 video_bytes = f.read()
@@ -1029,7 +1023,12 @@ with tab5:
 
         outline_w = sub_style.get("outline_width", 2)
         oc = sub_style.get("outline_color", "#000000")
-        shadow_str = oc + " " + str(outline_w) + "px " + str(outline_w) + "px 0px, " + oc + " -" + str(outline_w) + "px -" + str(outline_w) + "px 0px, " + oc + " " + str(outline_w) + "px -" + str(outline_w) + "px 0px, " + oc + " -" + str(outline_w) + "px " + str(outline_w) + "px 0px"
+        shadow_str = (
+            oc + " " + str(outline_w) + "px " + str(outline_w) + "px 0px, "
+            + oc + " -" + str(outline_w) + "px -" + str(outline_w) + "px 0px, "
+            + oc + " " + str(outline_w) + "px -" + str(outline_w) + "px 0px, "
+            + oc + " -" + str(outline_w) + "px " + str(outline_w) + "px 0px"
+        )
 
         if ct == "쇼츠":
             box_w = "360px"
@@ -1038,16 +1037,13 @@ with tab5:
             box_w = "640px"
             box_h = "360px"
 
-
         font_size_px = str(sub_style.get("size", 28))
         font_color = sub_style.get("color", "#FFFFFF")
 
-        preview_html = ""
-        preview_html = preview_html + '<style>@import url("' + font_import + '");</style>'
+        preview_html = '<style>@import url("' + font_import + '");</style>'
         preview_html = preview_html + '<div style="width:' + box_w + ';height:' + box_h + ';background:#1a1a2e;border:2px solid #444;border-radius:8px;display:flex;align-items:' + vert_align + ';justify-content:center;' + pad_area + 'margin:0 auto;">'
-        preview_html = preview_html + '<div style="background:rgba(' + str(bg_r) + ',' + str(bg_g) + ',' + str(bg_b) + ',' + str(bg_a) + ');padding:8px 20px;border-radius:4px;max-width:90%;text-align:center;">'
-                preview_html = preview_html + '<span style="font-family:' + "'" + font_name + "'" + ',sans-serif;font-size:' + font_size_px + 'px;color:' + font_color + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;overflow-wrap:break-word;white-space:normal;line-height:1.5;">'
-
+        preview_html = preview_html + '<div style="background:rgba(' + str(bg_r) + ',' + str(bg_g) + ',' + str(bg_b) + ',' + str(bg_a) + ');padding:10px 24px;border-radius:6px;width:85%;text-align:center;">'
+        preview_html = preview_html + '<span style="font-family:' + "'" + font_name + "'" + ',sans-serif;font-size:' + font_size_px + 'px;color:' + font_color + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;overflow-wrap:break-word;white-space:normal;line-height:1.5;">'
         preview_html = preview_html + preview_text
         preview_html = preview_html + '</span></div></div>'
 

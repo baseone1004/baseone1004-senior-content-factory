@@ -770,6 +770,15 @@ with tab1:
         cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
         if cleaned_raw.startswith("json"):
             cleaned_raw = cleaned_raw[4:].strip()
+        if not cleaned_raw.startswith("["):
+            bracket_pos = cleaned_raw.find("[")
+            if bracket_pos != -1:
+                cleaned_raw = cleaned_raw[bracket_pos:]
+        if not cleaned_raw.endswith("]"):
+            bracket_pos = cleaned_raw.rfind("]")
+            if bracket_pos != -1:
+                cleaned_raw = cleaned_raw[:bracket_pos + 1]
+
         json_match = re.search(r'\[.*\]', cleaned_raw, re.DOTALL)
         topics_parsed = None
         if json_match:

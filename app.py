@@ -1073,23 +1073,66 @@ with tab3:
                 if video_upload:
                     added = 0
                     existing_names = set(v["name"] for v in st.session_state["accumulated_videos"])
-                    for f in sorted(video_upload, key=lambda x: x.name):
-                        if len(st.session_state["accumulated_videos"]) >= 300:
+                    for f in sorted(video_upload, key=lambda x: x.nwith tab3:
+    st.header("영상 업로드")
+    num_lines = len(st.session_state.get("script_lines", []))
+    if num_lines == 0:
+        st.warning("탭2에서 먼저 대본을 저장해주세요.")
+    else:
+        st.info(f"대본 {num_lines}문장 → 영상 {num_lines}개 필요. 여러 번 나눠서 업로드하세요. (최대 300개)")
+
+        # 디스크 저장 폴더 초기화
+        if "video_save_dir" not in st.session_state:
+            st.session_state["video_save_dir"] = tempfile.mkdtemp(prefix="vid_")
+        if "video_file_list" not in st.session_state:
+            st.session_state["video_file_list"] = []
+
+        save_dir = st.session_state["video_save_dir"]
+
+        video_upload = st.file_uploader(
+            "영상 파일 선택 (한 번에 30~50개씩 권장)",
+            type=["mp4", "mov", "avi", "mkv"],
+            accept_multiple_files=True,
+            key="video_upload"
+        )
+
+        col_up1, col_up2, col_up3 = st.columns(3)
+        with col_up1:
+            if st.button("이 파일들 추가", key="btn_add_videos", use_container_width=True):
+                if video_upload:
+                    added = 0
+                    existing_names = set(v["name"] for v in st.session_state["video_file_list"])
+                    progress = st.progress(0)
+                    total_files = len(video_upload)
+                    sorted_files = sorted(video_upload, key=lambda x: x.name)
+                    for fi, f in enumerate(sorted_files):
+                        if len(st.session_state["video_file_list"]) >= 300:
                             st.warning("최대 300개까지만 업로드 가능합니다.")
                             break
                         if f.name not in existing_names:
-                            st.session_state["accumulated_videos"].append({"name": f.name, "bytes": f.getvalue()})
+                            # 디스크에 저장 (메모리 해제)
+                            file_path = os.path.join(save_dir, f"{len(st.session_state['video_file_list']):04d}_{f.name}")
+                            with open(file_path, "wb") as wf:
+                                wf.write(f.getvalue())
+                            file_size = os.path.getsize(file_path)
+                            st.session_state["video_file_list"].append({
+                                "name": f.name,
+                                "path": file_path,
+                                "size": file_size
+                            })
                             existing_names.add(f.name)
                             added += 1
-                    total = len(st.session_state["accumulated_videos"])
+                        progress.progress((fi + 1) / total_files)
+                    total = len(st.session_state["video_file_list"])
                     st.success(f"{added}개 추가됨. 현재 총 {total}개 / 필요 {num_lines}개")
                 else:
                     st.warning("파일을 먼저 선택해주세요.")
 
         with col_up2:
             if st.button("전체 영상 확정", key="btn_confirm_videos", use_container_width=True):
-                if st.session_state["accumulated_videos"]:
-                    st.session_state["uploaded_videos"] = list(st.session_state["accumulated_videos"])
+                if st.session_state["video_file_list"]:
+                    # uploaded_videos에는 경로 기반 딕셔너리 저장
+                    st.session_state["uploaded_videos"] = list(st.session_state["video_file_list"])
                     total = len(st.session_state["uploaded_videos"])
                     st.success(f"총 {total}개 영상 확정 완료!")
                     if total < num_lines:
@@ -1101,15 +1144,20 @@ with tab3:
 
         with col_up3:
             if st.button("업로드 초기화", key="btn_reset_videos", use_container_width=True):
-                st.session_state["accumulated_videos"] = []
+                old_dir = st.session_state.get("video_save_dir", "")
+                if old_dir and os.path.exists(old_dir):
+                    shutil.rmtree(old_dir, ignore_errors=True)
+                st.session_state["video_save_dir"] = tempfile.mkdtemp(prefix="vid_")
+                st.session_state["video_file_list"] = []
                 st.session_state["uploaded_videos"] = []
                 st.success("영상 업로드가 초기화되었습니다.")
                 st.rerun()
 
         # 현재 누적 상태 표시
-        acc_count = len(st.session_state.get("accumulated_videos", []))
+        file_list = st.session_state.get("video_file_list", [])
+        acc_count = len(file_list)
         if acc_count > 0:
-            acc_size = sum(len(v["bytes"]) for v in st.session_state["accumulated_videos"]) / 1024 / 1024
+            acc_size = sum(v.get("size", 0) for v in file_list) / 1024 / 1024
             st.markdown(
                 '<div style="background:#1a1a2e; border:2px solid #FF8800; border-radius:8px; padding:12px; margin-top:8px;">'
                 + '<span style="color:#FF8800;">누적 대기중:</span>'
@@ -1120,7 +1168,7 @@ with tab3:
         if st.session_state.get("uploaded_videos"):
             st.divider()
             videos = st.session_state["uploaded_videos"]
-            total_size = sum(len(v["bytes"]) for v in videos) / 1024 / 1024
+            total_size = sum(v.get("size", 0) for v in videos) / 1024 / 1024
             st.markdown(
                 '<div style="background:#1a2e1a; border:2px solid #4CAF50; border-radius:8px; padding:12px;">'
                 + '<span style="color:#88CC88;">확정된 영상:</span>'
@@ -1131,7 +1179,7 @@ with tab3:
                 show_count = min(len(videos), 50)
                 for i in range(show_count):
                     v = videos[i]
-                    sz = len(v["bytes"]) / 1024 / 1024
+                    sz = v.get("size", 0) / 1024 / 1024
                     lt = st.session_state["script_lines"][i] if i < num_lines else ""
                     st.markdown(
                         '<div style="padding:4px 0; border-bottom:1px solid #333;">'
@@ -1141,6 +1189,7 @@ with tab3:
                         unsafe_allow_html=True)
                 if len(videos) > 50:
                     st.caption("... 외 " + str(len(videos) - 50) + "개 더 있음")
+
 
 with tab4:
     st.header("TTS 음성 생성")

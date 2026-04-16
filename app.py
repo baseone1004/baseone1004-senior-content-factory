@@ -867,36 +867,85 @@ with tab3:
     if num_lines == 0:
         st.warning("탭2에서 먼저 대본을 저장해주세요.")
     else:
-        st.info("대본 " + str(num_lines) + "문장. 여러 번 나눠서 업로드하세요. (한 번에 30~50개씩, 최대 300개)")
+        st.info("대본 " + str(num_lines) + "문장. 영상을 ZIP 파일로 묶어서 업로드하세요. (mp4 파일들을 하나의 ZIP으로 압축)")
+
+        if "video_save_dir" not in st.session_state or not st.session_state["video_save_dir"] or not os.path.exists(st.session_state.get("video_save_dir", "")):
+            st.session_state["video_save_dir"] = tempfile.mkdtemp(prefix="vid_")
+        if "video_file_list" not in st.session_state:
+            st.session_state["video_file_list"] = []
+
         save_dir = st.session_state["video_save_dir"]
-        video_upload = st.file_uploader("영상 파일 선택 (한 번에 30~50개씩 권장)", type=["mp4", "mov", "avi", "mkv"], accept_multiple_files=True, key="video_upload")
-        col_up1, col_up2, col_up3 = st.columns(3)
-        with col_up1:
-            if st.button("이 파일들 추가", key="btn_add_videos", use_container_width=True):
-                if video_upload:
+
+        upload_method = st.radio("업로드 방식", ["ZIP 파일 업로드 (권장)", "개별 파일 업로드 (50개 이하)"], horizontal=True, key="upload_method")
+
+        if upload_method == "ZIP 파일 업로드 (권장)":
+            st.caption("영상 파일들을 ZIP으로 압축해서 올리세요. ZIP 안의 mp4 파일들이 이름순으로 정렬됩니다.")
+            zip_upload = st.file_uploader("ZIP 파일 선택", type=["zip"], key="zip_upload")
+            if zip_upload and st.button("ZIP 압축 해제 및 추가", key="btn_unzip", use_container_width=True):
+                import zipfile
+                with st.spinner("ZIP 파일 압축 해제 중..."):
+                    zip_path = os.path.join(save_dir, "upload.zip")
+                    with open(zip_path, "wb") as f:
+                        f.write(zip_upload.getvalue())
                     added = 0
                     existing_names = set(v["name"] for v in st.session_state["video_file_list"])
-                    progress = st.progress(0)
-                    total_files = len(video_upload)
-                    sorted_files = sorted(video_upload, key=lambda x: x.name)
-                    for fi, f in enumerate(sorted_files):
-                        if len(st.session_state["video_file_list"]) >= 300:
-                            st.warning("최대 300개까지만 업로드 가능합니다.")
-                            break
-                        if f.name not in existing_names:
-                            file_path = os.path.join(save_dir, str(len(st.session_state["video_file_list"])).zfill(4) + "_" + f.name)
-                            with open(file_path, "wb") as wf:
-                                wf.write(f.getvalue())
-                            file_size = os.path.getsize(file_path)
-                            st.session_state["video_file_list"].append({"name": f.name, "path": file_path, "size": file_size})
-                            existing_names.add(f.name)
-                            added += 1
-                        progress.progress((fi + 1) / total_files)
+                    try:
+                        with zipfile.ZipFile(zip_path, "r") as zf:
+                            names = sorted(zf.namelist())
+                            progress = st.progress(0)
+                            video_names = [n for n in names if n.lower().endswith((".mp4", ".mov", ".avi", ".mkv")) and not n.startswith("__MACOSX") and not n.startswith(".")]
+                            for fi, name in enumerate(video_names):
+                                if len(st.session_state["video_file_list"]) >= 300:
+                                    st.warning("최대 300개까지만 가능합니다.")
+                                    break
+                                base_name = os.path.basename(name)
+                                if not base_name or base_name in existing_names:
+                                    progress.progress((fi + 1) / max(len(video_names), 1))
+                                    continue
+                                extract_path = os.path.join(save_dir, str(len(st.session_state["video_file_list"])).zfill(4) + "_" + base_name)
+                                with zf.open(name) as src, open(extract_path, "wb") as dst:
+                                    dst.write(src.read())
+                                file_size = os.path.getsize(extract_path)
+                                if file_size > 0:
+                                    st.session_state["video_file_list"].append({"name": base_name, "path": extract_path, "size": file_size})
+                                    existing_names.add(base_name)
+                                    added += 1
+                                progress.progress((fi + 1) / max(len(video_names), 1))
+                    except Exception as e:
+                        st.error("ZIP 압축 해제 실패: " + str(e))
+                    if os.path.exists(zip_path):
+                        os.unlink(zip_path)
                     total = len(st.session_state["video_file_list"])
-                    st.success(str(added) + "개 추가됨. 현재 총 " + str(total) + "개 / 필요 " + str(num_lines) + "개")
-                else:
-                    st.warning("파일을 먼저 선택해주세요.")
-        with col_up2:
+                    if added > 0:
+                        st.success(str(added) + "개 영상 추가됨. 현재 총 " + str(total) + "개 / 필요 " + str(num_lines) + "개")
+
+        else:
+            st.caption("50개 이하일 때만 사용하세요. 많으면 ZIP 방식을 이용하세요.")
+            video_upload = st.file_uploader("영상 파일 선택", type=["mp4", "mov", "avi", "mkv"], accept_multiple_files=True, key="video_upload")
+            if video_upload and st.button("이 파일들 추가", key="btn_add_videos", use_container_width=True):
+                added = 0
+                existing_names = set(v["name"] for v in st.session_state["video_file_list"])
+                progress = st.progress(0)
+                total_files = len(video_upload)
+                sorted_files = sorted(video_upload, key=lambda x: x.name)
+                for fi, f in enumerate(sorted_files):
+                    if len(st.session_state["video_file_list"]) >= 300:
+                        st.warning("최대 300개까지만 업로드 가능합니다.")
+                        break
+                    if f.name not in existing_names:
+                        file_path = os.path.join(save_dir, str(len(st.session_state["video_file_list"])).zfill(4) + "_" + f.name)
+                        with open(file_path, "wb") as wf:
+                            wf.write(f.getvalue())
+                        file_size = os.path.getsize(file_path)
+                        st.session_state["video_file_list"].append({"name": f.name, "path": file_path, "size": file_size})
+                        existing_names.add(f.name)
+                        added += 1
+                    progress.progress((fi + 1) / total_files)
+                total = len(st.session_state["video_file_list"])
+                st.success(str(added) + "개 추가됨. 현재 총 " + str(total) + "개 / 필요 " + str(num_lines) + "개")
+
+        col_up1, col_up2 = st.columns(2)
+        with col_up1:
             if st.button("전체 영상 확정", key="btn_confirm_videos", use_container_width=True):
                 if st.session_state["video_file_list"]:
                     st.session_state["uploaded_videos"] = list(st.session_state["video_file_list"])
@@ -908,7 +957,7 @@ with tab3:
                         st.warning("영상 " + str(total) + "개 > 문장 " + str(num_lines) + "개. 초과분 무시.")
                 else:
                     st.warning("추가된 영상이 없습니다.")
-        with col_up3:
+        with col_up2:
             if st.button("업로드 초기화", key="btn_reset_videos", use_container_width=True):
                 old_dir = st.session_state.get("video_save_dir", "")
                 if old_dir and os.path.exists(old_dir):
@@ -918,11 +967,13 @@ with tab3:
                 st.session_state["uploaded_videos"] = []
                 st.success("영상 업로드가 초기화되었습니다.")
                 st.rerun()
+
         file_list = st.session_state.get("video_file_list", [])
         acc_count = len(file_list)
         if acc_count > 0:
             acc_size = sum(v.get("size", 0) for v in file_list) / 1024 / 1024
             st.markdown('<div style="background:#1a1a2e;border:2px solid #FF8800;border-radius:8px;padding:12px;margin-top:8px;"><span style="color:#FF8800;">누적 대기중:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">' + str(acc_count) + '개 / ' + str(round(acc_size, 1)) + 'MB</span><span style="color:#AAA;margin-left:12px;">(확정 버튼을 누르면 최종 반영됩니다)</span></div>', unsafe_allow_html=True)
+
         if st.session_state.get("uploaded_videos"):
             st.divider()
             videos = st.session_state["uploaded_videos"]

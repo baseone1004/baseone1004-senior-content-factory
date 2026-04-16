@@ -373,7 +373,8 @@ def generate_srt_split(sub_lines, durations):
 
 def generate_ass_subtitle(srt_text, sub_style, video_width=1080, video_height=1920):
     font_name = FONT_MAP.get(sub_style.get("font", "나눔고딕 볼드"), "NanumGothicBold")
-    font_size = sub_style.get("size", 28)
+    raw_size = sub_style.get("size", 28)
+    font_size = int(raw_size * (video_height / 360))
     line_spacing = sub_style.get("line_spacing", 20)
     outline_w = sub_style.get("outline_width", 2)
     margin_v = sub_style.get("margin_v", 30)

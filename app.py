@@ -424,7 +424,7 @@ with tab1:
 
             with st.spinner("뉴스를 분석하고 주제를 추천 중입니다..."):
                 content_label = st.session_state.get("content_type", "쇼츠")
-                                                topic_prompt = f"""당신은 유튜브 {content_label} 백만 조회수 전문 기획자이자 유튜브 광고 수익 최적화 전문가입니다.
+                topic_prompt = f"""당신은 유튜브 {content_label} 백만 조회수 전문 기획자이자 유튜브 광고 수익 최적화 전문가입니다.
 
 아래는 "{selected_cat}" 카테고리의 최신 뉴스입니다:
 {news_result}

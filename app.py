@@ -458,7 +458,7 @@ with tab1:
 - 몰락이나 위기를 다루더라도 원인 분석이나 교훈이나 대안 제시 관점으로 접근한다.
 - 특정인을 비난하지 않고 구조적 문제를 분석하는 방식으로 접근한다.
 
-반드시 아래 JSON 형식으로만 출력하세요:
+반드시 아래 JSON 형식으로만 출력하세요. JSON 외에 다른 텍스트를 절대 포함하지 마세요:
 [
   {{"번호": 1, "주제": "유튜브 제목 (20~30자)", "출처뉴스": "참고한 뉴스 제목", "떡상확률": 85, "이유": "한 줄 설명", "추천태그": "태그1, 태그2, 태그3", "난이도": "쉬움", "광고적합": "적합"}},
   ...
@@ -468,11 +468,10 @@ with tab1:
 - 광고주 친화적 가이드라인을 완벽히 준수하는 제목만 추천한다.
 - 떡상확률은 50~95 사이로 현실적으로 평가한다.
 - 난이도는 쉬움 또는 보통 또는 어려움 중 하나를 선택한다.
-- 광고적합 항목은 반드시 적합으로만 출력한다. 부적합한 주제는 아예 추천하지 않는다.
+- 광고적합 항목은 반드시 적합으로만 출력한다.
 - 10개 주제는 모두 서로 다른 각도의 주제여야 한다.
-- 떡상확률이 높은 순서로 정렬한다."""
-
-
+- 떡상확률이 높은 순서로 정렬한다.
+- 출력은 반드시 [ 로 시작하고 ] 로 끝나야 한다."""
                 topic_result = safe_generate(topic_prompt, max_tokens=6000)
                 if topic_result.startswith("오류:"):
                     st.error(topic_result)
@@ -488,10 +487,10 @@ with tab1:
         st.divider()
         st.subheader("추천 주제 TOP 10")
         raw = st.session_state["topic_recommendations"]
-        cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").replace("json\n", "").replace("json", "", 1).strip()
-        cleaned_raw = re.sub(r'^[^(\[{)]*', '', cleaned_raw, count=1)
+        cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+        if cleaned_raw.startswith("json"):
+            cleaned_raw = cleaned_raw[4:].strip()
         json_match = re.search(r'\[.*\]', cleaned_raw, re.DOTALL)
-
         topics_parsed = None
         if json_match:
             try:
@@ -500,7 +499,7 @@ with tab1:
                 topics_parsed = None
 
         if topics_parsed and isinstance(topics_parsed, list):
-                          for item in topics_parsed:
+            for item in topics_parsed:
                 num = item.get("번호", "")
                 title = item.get("주제", "")
                 source = item.get("출처뉴스", "")
@@ -508,7 +507,6 @@ with tab1:
                 reason = item.get("이유", "")
                 tags = item.get("추천태그", "")
                 diff = item.get("난이도", "보통")
-                ad_ok = item.get("광고적합", "적합")
                 if prob >= 85:
                     pc = "#FF4444"
                     pe = "🔥"
@@ -548,10 +546,8 @@ with tab1:
                 card_html = card_html + '</div>'
                 st.markdown(card_html, unsafe_allow_html=True)
 
-
-
             st.divider()
-            topic_options = [f"{item.get('번호', '')}. {item.get('주제', '')} (떡상 {item.get('떡상확률', 0)}%)" for item in topics_parsed]
+            topic_options = [str(item.get("번호", "")) + ". " + str(item.get("주제", "")) + " (" + str(item.get("떡상확률", 0)) + "%)" for item in topics_parsed]
             selected_topic_idx = st.selectbox("제작할 주제를 선택하세요", topic_options, key="topic_select_dropdown")
             col_btn1, col_btn2 = st.columns(2)
             with col_btn1:
@@ -561,34 +557,36 @@ with tab1:
                         chosen = topics_parsed[idx]
                         st.session_state["selected_topic"] = chosen.get("주제", "")
                         st.session_state["selected_topic_data"] = chosen
-                        st.success(f"주제 결정: {chosen.get('주제', '')}")
+                        st.success("주제 결정: " + chosen.get("주제", ""))
             with col_btn2:
                 custom_topic = st.text_input("또는 직접 주제 입력", key="custom_topic_input")
                 if st.button("직접 입력 주제로 결정", key="btn_custom_topic"):
                     if custom_topic.strip():
                         st.session_state["selected_topic"] = custom_topic.strip()
                         st.session_state["selected_topic_data"] = {}
-                        st.success(f"주제 결정: {custom_topic.strip()}")
+                        st.success("주제 결정: " + custom_topic.strip())
         else:
-            st.markdown(f"```\n{clean_special(raw)}\n```")
+            st.markdown("```\n" + clean_special(raw) + "\n```")
             topic_input = st.text_input("사용할 주제를 입력하세요", key="topic_input_fallback")
             if st.button("이 주제로 결정", key="btn_set_topic_fallback"):
                 if topic_input.strip():
                     st.session_state["selected_topic"] = topic_input.strip()
-                    st.success(f"주제 결정: {topic_input.strip()}")
+                    st.success("주제 결정: " + topic_input.strip())
 
     if st.session_state.get("selected_topic"):
         st.divider()
         sd = st.session_state.get("selected_topic_data", {})
         info_line = ""
         if sd:
-            info_line = f"""<div style="font-size:14px; color:#AAA;">떡상확률: <span style="color:#FF4444; font-weight:bold;">{sd.get("떡상확률", "")}%</span> | 난이도: {sd.get("난이도", "")} | 태그: {sd.get("추천태그", "")}</div>"""
-        st.markdown(
-            f"""<div style="border:3px solid #4CAF50; border-radius:12px; padding:20px; background:#0a2e0a; text-align:center;">
-                <div style="font-size:14px; color:#88CC88;">현재 선택된 주제</div>
-                <div style="font-size:24px; font-weight:bold; color:#FFF; margin:10px 0;">{st.session_state['selected_topic']}</div>
-                {info_line}
-            </div>""", unsafe_allow_html=True)
+            info_line = '<div style="font-size:14px;color:#AAA;">떡상확률: <span style="color:#FF4444;font-weight:bold;">' + str(sd.get("떡상확률", "")) + '%</span> | 난이도: ' + str(sd.get("난이도", "")) + ' | 태그: ' + str(sd.get("추천태그", "")) + '</div>'
+        selected_box = '<div style="border:3px solid #4CAF50;border-radius:12px;padding:20px;background:#0a2e0a;text-align:center;">'
+        selected_box = selected_box + '<div style="font-size:14px;color:#88CC88;">현재 선택된 주제</div>'
+        selected_box = selected_box + '<div style="font-size:24px;font-weight:bold;color:#FFF;margin:10px 0;">' + st.session_state["selected_topic"] + '</div>'
+        selected_box = selected_box + info_line
+        selected_box = selected_box + '</div>'
+        st.markdown(selected_box, unsafe_allow_html=True)
+
+
 
 with tab2:
     st.header("대본 입력")

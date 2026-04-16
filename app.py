@@ -509,15 +509,25 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
         clip_paths = []
         for i, v in enumerate(videos):
             cp = os.path.join(tmp_dir, f"clip_{i:03d}.mp4")
-            with open(cp, "wb") as f:
-                if isinstance(v, dict):
-                    f.write(v["bytes"])
+            if isinstance(v, dict) and "path" in v:
+                # 디스크 저장 방식: 경로에서 복사
+                if os.path.exists(v["path"]):
+                    shutil.copy2(v["path"], cp)
                 else:
+                    continue
+            elif isinstance(v, dict) and "bytes" in v:
+                # 기존 메모리 방식 호환
+                with open(cp, "wb") as f:
+                    f.write(v["bytes"])
+            else:
+                with open(cp, "wb") as f:
                     f.write(v)
             clip_paths.append(cp)
 
+        # 이하 나머지는 기존 코드 그대로 유지
         audio_paths = []
         audio_index_map = []
+
         for i, a in enumerate(audio_data):
             if a is None:
                 continue

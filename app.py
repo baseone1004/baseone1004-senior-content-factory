@@ -488,8 +488,10 @@ with tab1:
         st.divider()
         st.subheader("추천 주제 TOP 10")
         raw = st.session_state["topic_recommendations"]
-        cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+        cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").replace("json\n", "").replace("json", "", 1).strip()
+        cleaned_raw = re.sub(r'^[^(\[{)]*', '', cleaned_raw, count=1)
         json_match = re.search(r'\[.*\]', cleaned_raw, re.DOTALL)
+
         topics_parsed = None
         if json_match:
             try:
@@ -498,7 +500,7 @@ with tab1:
                 topics_parsed = None
 
         if topics_parsed and isinstance(topics_parsed, list):
-            for item in topics_parsed:
+                          for item in topics_parsed:
                 num = item.get("번호", "")
                 title = item.get("주제", "")
                 source = item.get("출처뉴스", "")
@@ -506,28 +508,47 @@ with tab1:
                 reason = item.get("이유", "")
                 tags = item.get("추천태그", "")
                 diff = item.get("난이도", "보통")
+                ad_ok = item.get("광고적합", "적합")
                 if prob >= 85:
-                    pc, pe, bc = "#FF4444", "🔥", "#FF4444"
+                    pc = "#FF4444"
+                    pe = "🔥"
+                    bc = "#FF4444"
                 elif prob >= 70:
-                    pc, pe, bc = "#FF8800", "⚡", "#FF8800"
+                    pc = "#FF8800"
+                    pe = "⚡"
+                    bc = "#FF8800"
                 else:
-                    pc, pe, bc = "#44AA44", "💡", "#44AA44"
+                    pc = "#44AA44"
+                    pe = "💡"
+                    bc = "#44AA44"
                 dc = {"쉬움": "#44CC44", "보통": "#FFAA00", "어려움": "#FF4444"}.get(diff, "#FFAA00")
-                st.markdown(
-                    f"""<div style="border:2px solid {bc}; border-radius:12px; padding:16px; margin:8px 0; background:#1a1a2e;">
-                        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
-                            <span style="font-size:20px; font-weight:bold; color:#FFF;">{pe} {num}. {title}</span>
-                            <span style="font-size:24px; font-weight:bold; color:{pc};">떡상 {prob}%</span>
-                        </div>
-                        <div style="margin:6px 0;">
-                            <span style="background:#333; padding:3px 10px; border-radius:20px; font-size:12px; color:#AAA;">출처: {source}</span>
-                                                        <span style="background:{dc}22; padding:3px 10px; border-radius:20px; font-size:12px; color:{dc}; margin-left:6px;">난이도: {diff}</span>
-                            <span style="background:#00AA0022; padding:3px 10px; border-radius:20px; font-size:12px; color:#00CC00; margin-left:6px;">광고적합</span>
+                card_html = '<div style="border:2px solid ' + bc + ';border-radius:12px;padding:16px;margin:10px 0;background:#1a1a2e;">'
+                card_html = card_html + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+                card_html = card_html + '<span style="font-size:20px;font-weight:bold;color:#FFF;">' + pe + ' ' + str(num) + '. ' + str(title) + '</span>'
+                card_html = card_html + '<span style="font-size:24px;font-weight:bold;color:' + pc + ';">' + str(prob) + '%</span>'
+                card_html = card_html + '</div>'
+                card_html = card_html + '<table style="width:100%;border-collapse:collapse;margin:8px 0;">'
+                card_html = card_html + '<tr style="border-bottom:1px solid #333;">'
+                card_html = card_html + '<td style="padding:6px 8px;color:#888;font-size:13px;width:80px;">출처뉴스</td>'
+                card_html = card_html + '<td style="padding:6px 8px;color:#CCC;font-size:13px;">' + str(source) + '</td>'
+                card_html = card_html + '</tr>'
+                card_html = card_html + '<tr style="border-bottom:1px solid #333;">'
+                card_html = card_html + '<td style="padding:6px 8px;color:#888;font-size:13px;">추천이유</td>'
+                card_html = card_html + '<td style="padding:6px 8px;color:#CCC;font-size:13px;">' + str(reason) + '</td>'
+                card_html = card_html + '</tr>'
+                card_html = card_html + '<tr style="border-bottom:1px solid #333;">'
+                card_html = card_html + '<td style="padding:6px 8px;color:#888;font-size:13px;">추천태그</td>'
+                card_html = card_html + '<td style="padding:6px 8px;color:#CCC;font-size:13px;">' + str(tags) + '</td>'
+                card_html = card_html + '</tr>'
+                card_html = card_html + '</table>'
+                card_html = card_html + '<div style="display:flex;gap:8px;margin-top:8px;">'
+                card_html = card_html + '<span style="background:' + dc + '22;padding:4px 12px;border-radius:20px;font-size:12px;color:' + dc + ';">난이도: ' + str(diff) + '</span>'
+                card_html = card_html + '<span style="background:#00AA0022;padding:4px 12px;border-radius:20px;font-size:12px;color:#00CC00;">광고적합</span>'
+                card_html = card_html + '</div>'
+                card_html = card_html + '</div>'
+                st.markdown(card_html, unsafe_allow_html=True)
 
-                        </div>
-                        <div style="color:#CCC; font-size:14px; margin:8px 0;">{reason}</div>
-                        <div style="color:#888; font-size:12px;">태그: {tags}</div>
-                    </div>""", unsafe_allow_html=True)
+
 
             st.divider()
             topic_options = [f"{item.get('번호', '')}. {item.get('주제', '')} (떡상 {item.get('떡상확률', 0)}%)" for item in topics_parsed]

@@ -69,7 +69,7 @@ DEFAULT_SUB_LONG = {
     "margin_l": 10,
     "margin_r": 10,
     "bg_opacity": 0.5,
-    "line_spacing": 1.4,
+    "line_spacing": 20,
 }
 DEFAULT_SUB_SHORTS = {
     "font": "배달의민족 주아",
@@ -82,7 +82,7 @@ DEFAULT_SUB_SHORTS = {
     "margin_l": 10,
     "margin_r": 10,
     "bg_opacity": 0.0,
-    "line_spacing": 1.4,
+    "line_spacing": 20,
 }
 
 defaults = {
@@ -110,7 +110,6 @@ for k, v in defaults.items():
         st.session_state[k] = v
 
 
-# ─────────────────────────── 사이드바 ───────────────────────────
 with st.sidebar:
     st.title("시니어 콘텐츠 공장 v5.0")
     st.divider()
@@ -141,7 +140,6 @@ with st.sidebar:
     st.caption("문의: 시니어 콘텐츠 공장")
 
 
-# ─────────────────────────── 유틸 함수 ───────────────────────────
 def clean_special(text):
     if not text:
         return ""
@@ -373,6 +371,131 @@ def generate_srt_split(sub_lines, durations):
     return srt
 
 
+def generate_ass_subtitle(srt_text, sub_style, video_width=1080, video_height=1920):
+    font_name = FONT_MAP.get(sub_style.get("font", "나눔고딕 볼드"), "NanumGothicBold")
+    font_size = sub_style.get("size", 28)
+    line_spacing = sub_style.get("line_spacing", 20)
+    outline_w = sub_style.get("outline_width", 2)
+    margin_v = sub_style.get("margin_v", 30)
+    bg_opacity_float = sub_style.get("bg_opacity", 0.5)
+    position = sub_style.get("position", "하단")
+
+    hex_color = sub_style.get("color", "#FFFFFF").lstrip("#")
+    if len(hex_color) == 6:
+        r_c = hex_color[0:2]
+        g_c = hex_color[2:4]
+        b_c = hex_color[4:6]
+        primary_color = "&H00" + b_c + g_c + r_c
+    else:
+        primary_color = "&H00FFFFFF"
+
+    hex_outline = sub_style.get("outline_color", "#000000").lstrip("#")
+    if len(hex_outline) == 6:
+        r_o = hex_outline[0:2]
+        g_o = hex_outline[2:4]
+        b_o = hex_outline[4:6]
+        outline_color = "&H00" + b_o + g_o + r_o
+    else:
+        outline_color = "&H00000000"
+
+    bg_alpha = format(int((1.0 - bg_opacity_float) * 255), '02X')
+    back_color = "&H" + bg_alpha + "000000"
+
+    if position == "상단":
+        alignment = 8
+    elif position == "중앙":
+        alignment = 5
+    else:
+        alignment = 2
+
+    border_style = 3 if bg_opacity_float > 0 else 1
+
+    ass = "[Script Info]\n"
+    ass += "Title: Subtitles\n"
+    ass += "ScriptType: v4.00+\n"
+    ass += "WrapStyle: 0\n"
+    ass += "ScaledBorderAndShadow: yes\n"
+    ass += "YCbCr Matrix: None\n"
+    ass += "PlayResX: " + str(video_width) + "\n"
+    ass += "PlayResY: " + str(video_height) + "\n"
+    ass += "\n"
+    ass += "[V4+ Styles]\n"
+    ass += "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+    ass += "Style: Default,"
+    ass += font_name + ","
+    ass += str(font_size) + ","
+    ass += primary_color + ","
+    ass += "&H000000FF,"
+    ass += outline_color + ","
+    ass += back_color + ","
+    ass += "-1,0,0,0,"
+    ass += "100,100,"
+    ass += "0,"
+    ass += "0,"
+    ass += str(border_style) + ","
+    ass += str(outline_w) + ","
+    ass += "0,"
+    ass += str(alignment) + ","
+    ass += "20,20,"
+    ass += str(margin_v) + ","
+    ass += "1\n"
+    ass += "\n"
+    ass += "[Events]\n"
+    ass += "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+
+    blocks = srt_text.strip().split("\n\n")
+    for block in blocks:
+        block = block.strip()
+        if not block:
+            continue
+        block_lines = block.split("\n")
+        if len(block_lines) < 3:
+            continue
+        time_line = block_lines[1].strip()
+        text_parts = block_lines[2:]
+        text = " ".join([t.strip() for t in text_parts if t.strip()])
+
+        time_match = re.match(r'(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})', time_line)
+        if not time_match:
+            continue
+
+        sh = time_match.group(1)
+        sm = time_match.group(2)
+        ss = time_match.group(3)
+        sms = time_match.group(4)
+        eh = time_match.group(5)
+        em = time_match.group(6)
+        es = time_match.group(7)
+        ems = time_match.group(8)
+
+        start_ass = str(int(sh)) + ":" + sm + ":" + ss + "." + sms[:2]
+        end_ass = str(int(eh)) + ":" + em + ":" + es + "." + ems[:2]
+
+        if "\n" in text or len(text) > 25:
+            if "\n" in text:
+                parts = text.split("\n")
+            else:
+                mid = len(text) // 2
+                split_pos = text.rfind(" ", 0, mid + 5)
+                if split_pos == -1 or split_pos < 3:
+                    split_pos = text.find(" ", mid - 5)
+                if split_pos == -1 or split_pos < 3:
+                    split_pos = mid
+                parts = [text[:split_pos].strip(), text[split_pos:].strip()]
+
+            if line_spacing > 0 and len(parts) >= 2:
+                gap_fs = max(2, line_spacing)
+                ass_text = parts[0] + "\\N{\\fs" + str(gap_fs) + "} \\N{\\r}" + "\\N".join(parts[1:])
+            else:
+                ass_text = "\\N".join(parts)
+        else:
+            ass_text = text
+
+        ass += "Dialogue: 0," + start_ass + "," + end_ass + ",Default,,0,0,0,," + ass_text + "\n"
+
+    return ass
+
+
 def merge_final_video(videos, audio_data, srt_text, sub_style):
     try:
         if not videos:
@@ -475,9 +598,18 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
         final_path = os.path.join(tmp_dir, "final_output.mp4")
 
         if srt_text and srt_text.strip():
-            srt_path = os.path.join(tmp_dir, "subs.srt")
-            with open(srt_path, "w", encoding="utf-8") as f:
-                f.write(srt_text)
+            ct = sub_style.get("_content_type", "쇼츠")
+            if ct == "쇼츠":
+                v_w = 1080
+                v_h = 1920
+            else:
+                v_w = 1920
+                v_h = 1080
+
+            ass_content = generate_ass_subtitle(srt_text, sub_style, v_w, v_h)
+            ass_path = os.path.join(tmp_dir, "subs.ass")
+            with open(ass_path, "w", encoding="utf-8") as f:
+                f.write(ass_content)
 
             font_candidates = [
                 "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
@@ -486,68 +618,24 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
                 "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
             ]
-            font_path = ""
+            font_dir = ""
             for fp in font_candidates:
                 if os.path.exists(fp):
-                    font_path = fp
+                    font_dir = os.path.dirname(fp)
                     break
 
-            font_size = sub_style.get("size", 20) if sub_style else 20
-            outline_w = sub_style.get("outline_width", 2) if sub_style else 2
-            bg_opacity_float = sub_style.get("bg_opacity", 0.5) if sub_style else 0.5
-            bg_hex = format(int(bg_opacity_float * 255), '02X')
-            line_sp = sub_style.get("line_spacing", 1.4) if sub_style else 1.4
-            spacing_val = int((line_sp - 1.0) * font_size)
+            ass_escaped = ass_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
 
-            hex_color = sub_style.get("color", "#FFFFFF") if sub_style else "#FFFFFF"
-            hex_color = hex_color.lstrip("#")
-            if len(hex_color) == 6:
-                r_c = hex_color[0:2]
-                g_c = hex_color[2:4]
-                b_c = hex_color[4:6]
-                ass_color = "&H00" + b_c + g_c + r_c
-            else:
-                ass_color = "&H00FFFFFF"
-
-            srt_escaped = srt_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-
-            if font_path:
-                font_dir = os.path.dirname(font_path)
+            if font_dir:
                 font_dir_escaped = font_dir.replace("\\", "\\\\").replace(":", "\\:")
-                subtitles_filter = (
-                    "subtitles='" + srt_escaped + "'"
-                    + ":force_style='"
-                    + "FontName=NanumGothic"
-                    + ",FontSize=" + str(font_size)
-                    + ",PrimaryColour=" + ass_color
-                    + ",OutlineColour=&H" + bg_hex + "000000"
-                    + ",Outline=" + str(outline_w)
-                    + ",BorderStyle=3"
-                    + ",Alignment=2"
-                    + ",MarginV=30"
-                    + ",Spacing=" + str(spacing_val)
-                    + "'"
-                    + ":fontsdir='" + font_dir_escaped + "'"
-                )
+                ass_filter = "ass='" + ass_escaped + "':fontsdir='" + font_dir_escaped + "'"
             else:
-                subtitles_filter = (
-                    "subtitles='" + srt_escaped + "'"
-                    + ":force_style='"
-                    + "FontSize=" + str(font_size)
-                    + ",PrimaryColour=" + ass_color
-                    + ",OutlineColour=&H" + bg_hex + "000000"
-                    + ",Outline=" + str(outline_w)
-                    + ",BorderStyle=3"
-                    + ",Alignment=2"
-                    + ",MarginV=30"
-                    + ",Spacing=" + str(spacing_val)
-                    + "'"
-                )
+                ass_filter = "ass='" + ass_escaped + "'"
 
             sub_cmd = [
                 "ffmpeg", "-y",
                 "-i", merged_nosub,
-                "-vf", subtitles_filter,
+                "-vf", ass_filter,
                 "-c:v", "libx264",
                 "-preset", "ultrafast",
                 "-pix_fmt", "yuv420p",
@@ -576,7 +664,6 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
         return None, f"오류 발생: {str(e)}"
 
 
-# ─────────────────────────── 탭 생성 ───────────────────────────
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "1. 주제 추천",
     "2. 대본 입력",
@@ -586,7 +673,6 @@ tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "6. 최종 합치기"
 ])
 
-# ─────────────────────────── 탭1: 주제 추천 ───────────────────────────
 with tab1:
     st.header("주제 추천")
     st.info("카테고리를 선택하면 최신 뉴스를 검색하고, Gemini가 떡상 확률과 함께 10개 주제를 추천합니다.")
@@ -779,7 +865,6 @@ with tab1:
         selected_box = selected_box + '</div>'
         st.markdown(selected_box, unsafe_allow_html=True)
 
-# ─────────────────────────── 탭2: 대본 입력 ───────────────────────────
 with tab2:
     st.header("대본 입력")
     if st.session_state.get("selected_topic"):
@@ -910,7 +995,6 @@ with tab2:
                     + '<span style="color:#DDD; font-size:14px; margin-left:8px;">' + line + '</span></div>',
                     unsafe_allow_html=True)
 
-# ─────────────────────────── 탭3: 영상 업로드 ───────────────────────────
 with tab3:
     st.header("영상 업로드")
     num_lines = len(st.session_state.get("script_lines", []))
@@ -952,7 +1036,6 @@ with tab3:
                         + '<span style="color:#AAA; margin-left:8px; font-size:12px;">' + lt[:40] + '</span></div>',
                         unsafe_allow_html=True)
 
-# ─────────────────────────── 탭4: TTS 음성 ───────────────────────────
 with tab4:
     st.header("TTS 음성 생성")
     lines = st.session_state.get("script_lines", [])
@@ -1031,7 +1114,6 @@ with tab4:
                     if a:
                         st.audio(a, format="audio/mp3")
 
-# ─────────────────────────── 탭5: 자막 편집 ───────────────────────────
 with tab5:
     st.header("자막 편집")
     lines = st.session_state.get("script_lines", [])
@@ -1048,7 +1130,7 @@ with tab5:
             sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
 
         if "line_spacing" not in sub_style:
-            sub_style["line_spacing"] = 1.4
+            sub_style["line_spacing"] = 20
 
         if not st.session_state.get("edited_sub_lines") or len(st.session_state["edited_sub_lines"]) != len(lines):
             st.session_state["edited_sub_lines"] = list(lines)
@@ -1079,9 +1161,9 @@ with tab5:
 
         col_s9, col_s10 = st.columns(2)
         with col_s9:
-            sub_style["line_spacing"] = st.slider("줄간격", 1.0, 3.0, sub_style.get("line_spacing", 1.4), step=0.1, key="sub_line_spacing")
+            sub_style["line_spacing"] = st.slider("줄 간격 (2줄 자막 세로 간격)", 0, 60, int(sub_style.get("line_spacing", 20)), key="sub_line_spacing")
         with col_s10:
-            st.caption("줄간격 1.0 = 촘촘 / 1.5 = 기본 / 2.0 = 넓음 / 3.0 = 매우 넓음")
+            st.caption("0 = 줄 붙음 / 20 = 기본 / 40 = 넓음 / 60 = 매우 넓음")
 
         if ct == "쇼츠":
             st.session_state["subtitle_style_shorts"] = sub_style
@@ -1136,7 +1218,8 @@ with tab5:
 
         font_size_px = str(sub_style.get("size", 28))
         font_color = sub_style.get("color", "#FFFFFF")
-        line_height_val = str(sub_style.get("line_spacing", 1.4))
+        ls_px = sub_style.get("line_spacing", 20)
+        line_height_val = str(round(1.2 + ls_px / 40.0, 2))
 
         preview_html = '<style>@import url("' + font_import + '");</style>'
         preview_html = preview_html + '<div style="width:' + box_w + ';height:' + box_h + ';background:#1a1a2e;border:2px solid #444;border-radius:8px;display:flex;align-items:' + vert_align + ';justify-content:center;' + pad_area + 'margin:0 auto;">'
@@ -1232,7 +1315,6 @@ with tab5:
                 st.text(st.session_state["srt_content"][:3000])
             st.download_button("SRT 파일 다운로드", data=st.session_state["srt_content"], file_name="subtitles.srt", mime="text/plain", key="dl_srt")
 
-# ─────────────────────────── 탭6: 최종 합치기 ───────────────────────────
 with tab6:
     st.header("최종 영상 합치기")
     videos = st.session_state.get("uploaded_videos", [])
@@ -1257,6 +1339,8 @@ with tab6:
             sub_style = st.session_state.get("subtitle_style_shorts", dict(DEFAULT_SUB_SHORTS))
         else:
             sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
+
+        sub_style["_content_type"] = ct
 
         ok_audio = len([a for a in audio_data if a])
         info_msg = "영상 " + str(len(videos)) + "개 / 음성 " + str(ok_audio) + "개 / 자막 준비됨"

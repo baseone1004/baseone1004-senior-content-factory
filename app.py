@@ -665,6 +665,60 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
         return None, f"오류 발생: {str(e)}"
 
 
+def parse_topic_line(line):
+    line = line.strip()
+    if not line:
+        return None
+    if not re.match(r'^\d', line):
+        return None
+    parts = line.split("/")
+    if len(parts) < 3:
+        return None
+    num_match = re.match(r'^(\d+)', parts[0].strip())
+    if not num_match:
+        return None
+    num = int(num_match.group(1))
+    title = parts[1].strip() if len(parts) > 1 else ""
+    if not title:
+        return None
+    prob = 70
+    for p in parts:
+        p = p.strip()
+        if p.isdigit() and 50 <= int(p) <= 99:
+            prob = int(p)
+            break
+    source = ""
+    reason = ""
+    tags = ""
+    diff = "보통"
+    for p in parts[2:]:
+        p = p.strip()
+        if not p:
+            continue
+        if p.isdigit():
+            continue
+        if p in ["쉬움", "보통", "어려움"]:
+            diff = p
+        elif p == "적합":
+            continue
+        elif "뉴스" in p:
+            source = p
+        elif "," in p and len(p.split(",")) >= 2:
+            tags = p
+        elif not reason:
+            reason = p
+    return {
+        "번호": num,
+        "주제": title,
+        "출처뉴스": source,
+        "떡상확률": prob,
+        "이유": reason,
+        "추천태그": tags,
+        "난이도": diff,
+        "광고적합": "적합",
+    }
+
+
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "1. 주제 추천",
     "2. 대본 입력",
@@ -754,9 +808,6 @@ with tab1:
 따옴표 괄호 중괄호 콜론 등 특수문자를 절대 쓰지 마라.
 앞뒤로 설명이나 인사를 절대 붙이지 마라.
 첫 글자가 반드시 1이어야 한다."""
-
-
- 
                 topic_result = safe_generate(topic_prompt, max_tokens=6000)
                 if topic_result.startswith("오류:"):
                     st.error(topic_result)
@@ -772,38 +823,14 @@ with tab1:
         st.divider()
         st.subheader("추천 주제 TOP 10")
         raw = st.session_state["topic_recommendations"]
-        cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
-        if cleaned_raw.startswith("json"):
-           cleaned_raw = cleaned_raw[4:].strip()
-        cleaned_raw = cleaned_raw.replace("\u201c", '"').replace("\u201d", '"')
-        cleaned_raw = cleaned_raw.replace("\u2018", "'").replace("\u2019", "'")
-        cleaned_raw = cleaned_raw.replace("\uff02", '"')
-        if not cleaned_raw.startswith("["):
-           bracket_pos = cleaned_raw.find("[")
-           if bracket_pos != -1:
-              cleaned_raw = cleaned_raw[bracket_pos:]
-        if not cleaned_raw.endswith("]"):
-           bracket_pos = cleaned_raw.rfind("]")
-           if bracket_pos != -1:
-              cleaned_raw = cleaned_raw[:bracket_pos + 1]
-        json_match = re.search(r'\[.*\]', cleaned_raw, re.DOTALL)
-        topics_parsed = None
-        if json_match:
-            json_str = json_match.group()
-            json_str = re.sub(r'[\u201c\u201d\u201e\u201f\u2033\u2036\uff02\u00ab\u00bb]', '"', json_str)
-            json_str = re.sub(r'[\u2018\u2019\u201a\u201b\u2032\u2035\uff07]', "'", json_str)
-            try:
-                topics_parsed = json.loads(json_str)
-            except json.JSONDecodeError:
-                try:
-                    fixed = re.sub(r',\s*\]', ']', json_str)
-                    fixed = re.sub(r',\s*\}', '}', fixed)
-                    topics_parsed = json.loads(fixed)
-                except json.JSONDecodeError:
-                    topics_parsed = None
+        raw_clean = clean_special(raw)
+        topics_parsed = []
+        for line in raw_clean.split("\n"):
+            parsed = parse_topic_line(line)
+            if parsed:
+                topics_parsed.append(parsed)
 
-
-        if topics_parsed and isinstance(topics_parsed, list):
+        if topics_parsed:
             for item in topics_parsed:
                 num = item.get("번호", "")
                 title = item.get("주제", "")
@@ -871,7 +898,7 @@ with tab1:
                         st.session_state["selected_topic_data"] = {}
                         st.success("주제 결정: " + custom_topic.strip())
         else:
-            st.markdown("```\n" + clean_special(raw) + "\n```")
+            st.text(raw_clean)
             topic_input = st.text_input("사용할 주제를 입력하세요", key="topic_input_fallback")
             if st.button("이 주제로 결정", key="btn_set_topic_fallback"):
                 if topic_input.strip():

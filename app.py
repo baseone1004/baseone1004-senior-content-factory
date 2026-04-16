@@ -1046,7 +1046,8 @@ with tab5:
         preview_html = preview_html + '<style>@import url("' + font_import + '");</style>'
         preview_html = preview_html + '<div style="width:' + box_w + ';height:' + box_h + ';background:#1a1a2e;border:2px solid #444;border-radius:8px;display:flex;align-items:' + vert_align + ';justify-content:center;' + pad_area + 'margin:0 auto;">'
         preview_html = preview_html + '<div style="background:rgba(' + str(bg_r) + ',' + str(bg_g) + ',' + str(bg_b) + ',' + str(bg_a) + ');padding:8px 20px;border-radius:4px;max-width:90%;text-align:center;">'
-        preview_html = preview_html + '<span style="font-family:' + "'" + font_name + "'" + ',sans-serif;font-size:' + font_size_px + 'px;color:' + font_color + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;line-height:1.4;">'
+                preview_html = preview_html + '<span style="font-family:' + "'" + font_name + "'" + ',sans-serif;font-size:' + font_size_px + 'px;color:' + font_color + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;overflow-wrap:break-word;white-space:normal;line-height:1.5;">'
+
         preview_html = preview_html + preview_text
         preview_html = preview_html + '</span></div></div>'
 

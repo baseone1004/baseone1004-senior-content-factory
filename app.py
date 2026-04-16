@@ -689,7 +689,6 @@ with tab3:
                         <span style="color:#888;">{i+1:03d}</span>
                         <span style="color:#FFF; margin-left:8px;">{v['name']} ({sz:.1f}MB)</span>
                         <span style="color:#AAA; margin-left:8px; font-size:12px;">{lt[:40]}</span></div>""", unsafe_allow_html=True)
-
 with tab4:
     st.header("TTS 음성 생성")
     lines = st.session_state.get("script_lines", [])
@@ -890,7 +889,7 @@ with tab5:
             list_html = list_html + '</div>'
         list_html = list_html + '</div>'
         st.markdown(list_html, unsafe_allow_html=True)
-        st.caption("빨간색: 30자 초과 (길어서 잘릴 수 있음) / 노란색: 20~30자 / 초록색: 20자 이하 (적당)")
+        st.caption("빨간색: 30자 초과 / 노란색: 20~30자 / 초록색: 20자 이하")
 
         st.divider()
         st.subheader("자막 텍스트 편집")
@@ -907,7 +906,7 @@ with tab5:
                 else:
                     st.session_state["edited_sub_lines"] = new_lines
                     if len(new_lines) != len(durations):
-                        st.warning("자막 수(" + str(len(new_lines)) + ")와 음성 수(" + str(len(durations)) + ")가 다릅니다. SRT 생성 시 짧은 쪽에 맞춰집니다.")
+                        st.warning("자막 수(" + str(len(new_lines)) + ")와 음성 수(" + str(len(durations)) + ")가 다릅니다.")
                     st.success("자막 저장 완료! " + str(len(new_lines)) + "개")
         with col_b2:
             if st.button("SRT 자막 생성", key="btn_gen_srt", use_container_width=True):
@@ -921,7 +920,6 @@ with tab5:
             with st.expander("SRT 내용 확인"):
                 st.text(st.session_state["srt_content"][:3000])
             st.download_button("SRT 파일 다운로드", data=st.session_state["srt_content"], file_name="subtitles.srt", mime="text/plain", key="dl_srt")
-
 with tab6:
     st.header("최종 영상 합치기")
     videos = st.session_state.get("uploaded_videos", [])
@@ -948,11 +946,19 @@ with tab6:
             sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
 
         ok_audio = len([a for a in audio_data if a])
-        st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;"><span style="color:#88CC88;">준비 상태:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">영상 ' + str(len(videos)) + '개 / 음성 ' + str(ok_audio) + '개 / 자막 준비됨</span></div>', unsafe_allow_html=True)
+        info_msg = "영상 " + str(len(videos)) + "개 / 음성 " + str(ok_audio) + "개 / 자막 준비됨"
+        st.markdown(
+            '<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;">'
+            + '<span style="color:#88CC88;">준비 상태:</span>'
+            + '<span style="color:#FFF;font-weight:bold;margin-left:8px;">'
+            + info_msg
+            + '</span></div>',
+            unsafe_allow_html=True
+        )
 
-        st.info("Streamlit Cloud에서 영상 합치기는 서버 성능 제한이 있습니다. 49개 영상은 시간이 오래 걸릴 수 있습니다.")
+        st.info("Streamlit Cloud에서 영상 합치기는 서버 성능 제한이 있습니다.")
 
-                if st.button("최종 영상 합치기", key="btn_merge_final", use_container_width=True):
+        if st.button("최종 영상 합치기", key="btn_merge_final", use_container_width=True):
             ffmpeg_check = shutil.which("ffmpeg")
             if not ffmpeg_check:
                 st.error("ffmpeg가 설치되어 있지 않습니다. packages.txt 파일을 확인해주세요.")
@@ -981,4 +987,3 @@ with tab6:
                 key="dl_final_video",
                 use_container_width=True
             )
-

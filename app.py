@@ -965,12 +965,19 @@ with tab6:
                         st.session_state["final_video"] = result
                         st.success("최종 영상 완성!")
 
-        if st.session_state.get("final_video"):
+                if st.session_state.get("final_video"):
             st.divider()
             st.subheader("완성된 영상")
             st.video(st.session_state["final_video"])
             file_size = len(st.session_state["final_video"]) / 1024 / 1024
             st.caption("파일 크기: " + str(round(file_size, 1)) + "MB")
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            st.download_button("영상 다운로드", data=st.session_state["final_video"], file_name="final_" + ts + ".mp4", mime="video/mp4", key="dl_final_video", use_container_width=True)
-/mp4", key="dl_final_video", use_container_width=True)
+            fname = "final_" + ts + ".mp4"
+            st.download_button(
+                "영상 다운로드",
+                data=st.session_state["final_video"],
+                file_name=fname,
+                mime="video/mp4",
+                key="dl_final_video",
+                use_container_width=True
+            )

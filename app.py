@@ -1032,11 +1032,12 @@ with tab5:
         shadow_str = oc + " " + str(outline_w) + "px " + str(outline_w) + "px 0px, " + oc + " -" + str(outline_w) + "px -" + str(outline_w) + "px 0px, " + oc + " " + str(outline_w) + "px -" + str(outline_w) + "px 0px, " + oc + " -" + str(outline_w) + "px " + str(outline_w) + "px 0px"
 
         if ct == "쇼츠":
-            box_w = "250px"
-            box_h = "444px"
+            box_w = "360px"
+            box_h = "640px"
         else:
-            box_w = "533px"
-            box_h = "300px"
+            box_w = "640px"
+            box_h = "360px"
+
 
         font_size_px = str(sub_style.get("size", 28))
         font_color = sub_style.get("color", "#FFFFFF")

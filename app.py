@@ -784,10 +784,19 @@ with tab1:
         json_match = re.search(r'\[.*\]', cleaned_raw, re.DOTALL)
         topics_parsed = None
         if json_match:
+            json_str = json_match.group()
+            json_str = re.sub(r'[\u201c\u201d\u201e\u201f\u2033\u2036\uff02\u00ab\u00bb]', '"', json_str)
+            json_str = re.sub(r'[\u2018\u2019\u201a\u201b\u2032\u2035\uff07]', "'", json_str)
             try:
-                topics_parsed = json.loads(json_match.group())
+                topics_parsed = json.loads(json_str)
             except json.JSONDecodeError:
-                topics_parsed = None
+                try:
+                    fixed = re.sub(r',\s*\]', ']', json_str)
+                    fixed = re.sub(r',\s*\}', '}', fixed)
+                    topics_parsed = json.loads(fixed)
+                except json.JSONDecodeError:
+                    topics_parsed = None
+
 
         if topics_parsed and isinstance(topics_parsed, list):
             for item in topics_parsed:

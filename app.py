@@ -952,12 +952,12 @@ with tab6:
 
         st.info("Streamlit Cloud에서 영상 합치기는 서버 성능 제한이 있습니다. 49개 영상은 시간이 오래 걸릴 수 있습니다.")
 
-        if st.button("최종 영상 합치기", key="btn_merge_final", use_container_width=True):
+                if st.button("최종 영상 합치기", key="btn_merge_final", use_container_width=True):
             ffmpeg_check = shutil.which("ffmpeg")
             if not ffmpeg_check:
-                st.error("ffmpeg가 설치되어 있지 않습니다. 저장소에 packages.txt 파일을 만들고 안에 ffmpeg 한 줄을 적은 뒤 재배포해주세요.")
+                st.error("ffmpeg가 설치되어 있지 않습니다. packages.txt 파일을 확인해주세요.")
             else:
-                with st.spinner("영상을 합치고 있습니다. 49개 영상이라 시간이 걸립니다. 잠시만 기다려주세요..."):
+                with st.spinner("영상을 합치고 있습니다..."):
                     result, err = merge_final_video(videos, audio_data, srt, sub_style)
                     if err:
                         st.error(err)
@@ -965,12 +965,12 @@ with tab6:
                         st.session_state["final_video"] = result
                         st.success("최종 영상 완성!")
 
-                if st.session_state.get("final_video"):
+        if st.session_state.get("final_video"):
             st.divider()
             st.subheader("완성된 영상")
             st.video(st.session_state["final_video"])
-            file_size = len(st.session_state["final_video"]) / 1024 / 1024
-            st.caption("파일 크기: " + str(round(file_size, 1)) + "MB")
+            fsize = len(st.session_state["final_video"]) / 1024 / 1024
+            st.caption("파일 크기: " + str(round(fsize, 1)) + "MB")
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             fname = "final_" + ts + ".mp4"
             st.download_button(
@@ -981,3 +981,4 @@ with tab6:
                 key="dl_final_video",
                 use_container_width=True
             )
+

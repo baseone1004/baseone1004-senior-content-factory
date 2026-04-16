@@ -1073,6 +1073,34 @@ with tab5:
         list_html = list_html + '</div>'
         st.markdown(list_html, unsafe_allow_html=True)
         st.caption("빨간색: 30자 초과 / 노란색: 20~30자 / 초록색: 20자 이하")
+                st.divider()
+                
+        st.subheader("긴 자막 자동 분할")
+        max_chars = st.slider("한 줄 최대 글자수", 10, 40, 20, key="max_sub_chars")
+        if st.button("긴 자막 자동 분할", key="btn_auto_split_subs", use_container_width=True):
+            original = st.session_state.get("edited_sub_lines", [])
+            new_lines = []
+            for line in original:
+                line = line.strip()
+                if not line:
+                    continue
+                if len(line) <= max_chars:
+                    new_lines.append(line)
+                else:
+                    words = line.split(" ")
+                    current = ""
+                    for w in words:
+                        if current and len(current + " " + w) > max_chars:
+                            new_lines.append(current.strip())
+                            current = w
+                        else:
+                            current = current + " " + w if current else w
+                    if current.strip():
+                        new_lines.append(current.strip())
+            st.session_state["edited_sub_lines"] = new_lines
+            st.success("분할 완료! " + str(len(original)) + "개 → " + str(len(new_lines)) + "개")
+            st.warning("분할 후 반드시 TTS 음성 수와 맞는지 확인하세요. 자막 수가 늘어나면 SRT를 다시 생성해야 합니다.")
+            st.rerun()
 
         st.divider()
         st.subheader("자막 텍스트 편집")

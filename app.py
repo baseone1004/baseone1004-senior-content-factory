@@ -257,142 +257,189 @@ def generate_srt(lines, durations):
     return srt
 
 
-def merge_final_video(video_list, audio_bytes_list, srt_content, sub_style):
+def merge_final_video(videos, audio_data, srt_text, sub_style):
+    """최종 영상 합치기 - TTS 음성 포함, 이미지 클립 음소거, 한글 자막 번인"""
+    import shutil
     try:
-        work_dir = tempfile.mkdtemp()
+        if not videos:
+            return None, "영상 클립이 없습니다."
+        if not audio_data:
+            return None, "TTS 음성이 없습니다."
+
+        tmp_dir = tempfile.mkdtemp()
+
+        # 1) 각 이미지 영상 클립을 파일로 저장
+        clip_paths = []
+        for i, v in enumerate(videos):
+            cp = os.path.join(tmp_dir, f"clip_{i:03d}.mp4")
+            with open(cp, "wb") as f:
+                f.write(v)
+            clip_paths.append(cp)
+
+        # 2) 각 TTS 음성을 파일로 저장
+        audio_paths = []
+        for i, a in enumerate(audio_data):
+            ap = os.path.join(tmp_dir, f"audio_{i:03d}.mp3")
+            with open(ap, "wb") as f:
+                f.write(a)
+            audio_paths.append(ap)
+
+        # 3) 각 클립을 TTS 길이에 맞추고 음소거 + TTS 음성 입히기
         segment_paths = []
+        for i in range(min(len(clip_paths), len(audio_paths))):
+            # TTS 오디오 길이 구하기
+            dur_cmd = [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                audio_paths[i]
+            ]
+            dur_result = subprocess.run(dur_cmd, capture_output=True, text=True)
+            try:
+                audio_dur = float(dur_result.stdout.strip())
+            except:
+                audio_dur = 3.0
 
-        for i, audio_bytes in enumerate(audio_bytes_list):
-            if audio_bytes is None:
-                continue
-            vid_idx = min(i, len(video_list) - 1)
-            vid_bytes = video_list[vid_idx]["bytes"]
+            seg_path = os.path.join(tmp_dir, f"seg_{i:03d}.mp4")
 
-            vid_path = os.path.join(work_dir, f"vid_{i:04d}.mp4")
-            aud_path = os.path.join(work_dir, f"aud_{i:04d}.mp3")
-            seg_path = os.path.join(work_dir, f"seg_{i:04d}.ts")
-
-            with open(vid_path, "wb") as f:
-                f.write(vid_bytes)
-            with open(aud_path, "wb") as f:
-                f.write(audio_bytes)
-
-            subprocess.run(
-                ["ffmpeg", "-y", "-i", vid_path, "-i", aud_path,
-                 "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-                 "-c:a", "aac", "-b:a", "192k", "-shortest",
-                 "-f", "mpegts", seg_path],
-                capture_output=True, timeout=60
-            )
-
+            # 이미지 영상을 음소거하고 TTS 길이만큼 늘리거나 잘라서 TTS 합치기
+            seg_cmd = [
+                "ffmpeg", "-y",
+                "-stream_loop", "-1",
+                "-i", clip_paths[i],
+                "-i", audio_paths[i],
+                "-t", str(audio_dur),
+                "-map", "0:v:0",
+                "-map", "1:a:0",
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "aac",
+                "-b:a", "192k",
+                "-shortest",
+                seg_path
+            ]
+            subprocess.run(seg_cmd, capture_output=True, text=True)
             if os.path.exists(seg_path) and os.path.getsize(seg_path) > 0:
                 segment_paths.append(seg_path)
 
         if not segment_paths:
-            shutil.rmtree(work_dir, ignore_errors=True)
-            return None, "오류: 합칠 수 있는 영상이 없습니다."
+            return None, "세그먼트 생성에 실패했습니다."
 
-        concat_input = "concat:" + "|".join(segment_paths)
-        merged_path = os.path.join(work_dir, "merged.mp4")
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", concat_input,
-             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-             "-c:a", "aac", "-b:a", "192k", merged_path],
-            capture_output=True, timeout=300
-        )
+        # 4) 모든 세그먼트를 하나로 이어 붙이기
+        concat_list = os.path.join(tmp_dir, "concat.txt")
+        with open(concat_list, "w") as f:
+            for sp in segment_paths:
+                f.write(f"file '{sp}'\n")
 
-        if not os.path.exists(merged_path):
-            shutil.rmtree(work_dir, ignore_errors=True)
-            return None, "오류: 영상 병합 실패"
+        merged_nosub = os.path.join(tmp_dir, "merged_nosub.mp4")
+        concat_cmd = [
+            "ffmpeg", "-y",
+            "-f", "concat", "-safe", "0",
+            "-i", concat_list,
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-pix_fmt", "yuv420p",
+            "-c:a", "aac",
+            "-b:a", "192k",
+            merged_nosub
+        ]
+        subprocess.run(concat_cmd, capture_output=True, text=True)
 
-        srt_path = os.path.join(work_dir, "subtitles.srt")
-        output_path = os.path.join(work_dir, "final_output.mp4")
+        if not os.path.exists(merged_nosub) or os.path.getsize(merged_nosub) == 0:
+            return None, "영상 병합에 실패했습니다."
 
-        with open(srt_path, "w", encoding="utf-8") as f:
-            f.write(srt_content)
+        # 5) SRT 자막 번인 (한글 폰트 지정)
+        final_path = os.path.join(tmp_dir, "final_output.mp4")
 
-        font_name = FONT_MAP.get(sub_style.get("font", "나눔고딕 볼드"), "NanumGothicBold")
-        font_size = sub_style.get("size", 28)
-        outline_w = sub_style.get("outline_width", 2)
-        margin_v = sub_style.get("margin_v", 30)
-        margin_l = sub_style.get("margin_l", 10)
-        margin_r = sub_style.get("margin_r", 10)
+        if srt_text and srt_text.strip():
+            srt_path = os.path.join(tmp_dir, "subs.srt")
+            with open(srt_path, "w", encoding="utf-8") as f:
+                f.write(srt_text)
 
-        pos = sub_style.get("position", "하단")
-        if pos == "상단":
-            alignment = 8
-        elif pos == "중앙":
-            alignment = 5
+            # 한글 폰트 경로 탐색
+            font_candidates = [
+                "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+                "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+                "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc",
+                "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            ]
+            font_path = ""
+            for fp in font_candidates:
+                if os.path.exists(fp):
+                    font_path = fp
+                    break
+
+            # 자막 스타일
+            font_size = sub_style.get("font_size", 20) if sub_style else 20
+            font_color = sub_style.get("font_color", "&H00FFFFFF") if sub_style else "&H00FFFFFF"
+            outline_w = sub_style.get("outline", 2) if sub_style else 2
+            bg_opacity = sub_style.get("bg_opacity", "80") if sub_style else "80"
+
+            # srt_path 의 경로에서 특수문자 이스케이프
+            srt_escaped = srt_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+
+            if font_path:
+                font_escaped = font_path.replace("\\", "\\\\").replace(":", "\\:")
+                subtitles_filter = (
+                    f"subtitles='{srt_escaped}':force_style='"
+                    f"FontName=NanumGothic,"
+                    f"FontSize={font_size},"
+                    f"PrimaryColour={font_color},"
+                    f"OutlineColour=&H{bg_opacity}000000,"
+                    f"Outline={outline_w},"
+                    f"BorderStyle=3,"
+                    f"Alignment=2,"
+                    f"MarginV=30"
+                    f"':fontsdir='{os.path.dirname(font_escaped)}'"
+                )
+            else:
+                subtitles_filter = (
+                    f"subtitles='{srt_escaped}':force_style='"
+                    f"FontSize={font_size},"
+                    f"PrimaryColour={font_color},"
+                    f"OutlineColour=&H{bg_opacity}000000,"
+                    f"Outline={outline_w},"
+                    f"BorderStyle=3,"
+                    f"Alignment=2,"
+                    f"MarginV=30"
+                    f"'"
+                )
+
+            sub_cmd = [
+                "ffmpeg", "-y",
+                "-i", merged_nosub,
+                "-vf", subtitles_filter,
+                "-c:v", "libx264",
+                "-preset", "ultrafast",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "copy",
+                final_path
+            ]
+            result = subprocess.run(sub_cmd, capture_output=True, text=True)
+
+            # 자막 번인 실패 시 자막 없이 진행
+            if not os.path.exists(final_path) or os.path.getsize(final_path) == 0:
+                st.warning("자막 번인 실패 - 자막 없이 영상을 생성합니다. 오류: " + result.stderr[-300:] if result.stderr else "")
+                shutil.copy2(merged_nosub, final_path)
         else:
-            alignment = 2
+            shutil.copy2(merged_nosub, final_path)
 
-        srt_escaped = srt_path.replace("\\", "/").replace(":", "\\:")
-
-        subtitle_filter = (
-            f"subtitles='{srt_escaped}':force_style='"
-            f"FontName={font_name},"
-            f"FontSize={font_size},"
-            f"Outline={outline_w},"
-            f"Alignment={alignment},"
-            f"MarginV={margin_v},"
-            f"MarginL={margin_l},"
-            f"MarginR={margin_r}'"
-        )
-
-        subprocess.run(
-            ["ffmpeg", "-y", "-i", merged_path,
-             "-vf", subtitle_filter,
-             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
-             "-c:a", "copy", output_path],
-            capture_output=True, timeout=300
-        )
-
-        if os.path.exists(output_path) and os.path.getsize(output_path) > 0:
-            with open(output_path, "rb") as f:
-                result = f.read()
-            shutil.rmtree(work_dir, ignore_errors=True)
-            return result, None
+        # 6) 결과 읽기
+        if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
+            with open(final_path, "rb") as f:
+                video_bytes = f.read()
+            # 임시 폴더 정리
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return video_bytes, None
         else:
-            shutil.rmtree(work_dir, ignore_errors=True)
-            return None, "오류: 최종 영상 생성 실패"
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+            return None, "최종 파일 생성에 실패했습니다."
+
     except Exception as e:
-        return None, f"오류: {str(e)}"
+        return None, f"오류 발생: {str(e)}"
 
-
-with st.sidebar:
-    st.header("설정")
-    st.subheader("API 연결 상태")
-    if GEMINI_API_KEY:
-        st.success("Gemini API: 연결됨")
-    else:
-        st.error("Gemini API: 키 없음")
-    if INWORLD_API_KEY:
-        st.success("Inworld TTS: 연결됨")
-    else:
-        st.error("Inworld TTS: 키 없음")
-    st.divider()
-    st.subheader("레퍼런스 이미지")
-    ref_upload = st.file_uploader("주인공 참고 이미지", type=["png", "jpg", "jpeg", "webp"], key="ref_img_upload")
-    if ref_upload:
-        st.session_state["reference_image"] = ref_upload.getvalue()
-        st.image(ref_upload, caption="레퍼런스 이미지", width=200)
-    elif st.session_state.get("reference_image"):
-        st.image(st.session_state["reference_image"], caption="레퍼런스 이미지", width=200)
-    st.divider()
-    st.subheader("콘텐츠 유형")
-    st.session_state["content_type"] = st.radio(
-        "유형 선택", ["쇼츠", "롱폼"],
-        index=0 if st.session_state.get("content_type", "쇼츠") == "쇼츠" else 1,
-        key="content_type_radio"
-    )
-
-st.title("시니어 콘텐츠 공장 v5.0")
-st.caption("주제추천 → 대본 → 영상업로드 → TTS음성 → 자막편집 → 최종합치기")
-
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
-    "1. 주제 추천", "2. 대본 입력", "3. 영상 업로드",
-    "4. TTS 음성", "5. 자막 편집", "6. 최종 합치기",
-])
 
 with tab1:
     st.header("주제 추천")

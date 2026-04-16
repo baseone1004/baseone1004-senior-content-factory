@@ -69,6 +69,7 @@ DEFAULT_SUB_LONG = {
     "margin_l": 10,
     "margin_r": 10,
     "bg_opacity": 0.5,
+    "line_spacing": 1.4,
 }
 DEFAULT_SUB_SHORTS = {
     "font": "배달의민족 주아",
@@ -81,6 +82,7 @@ DEFAULT_SUB_SHORTS = {
     "margin_l": 10,
     "margin_r": 10,
     "bg_opacity": 0.0,
+    "line_spacing": 1.4,
 }
 
 defaults = {
@@ -289,6 +291,88 @@ def generate_srt(lines, durations):
     return srt
 
 
+def generate_srt_split(sub_lines, durations):
+    srt = ""
+    seq = 1
+    current_time = 0.0
+    sub_idx = 0
+    for i in range(len(durations)):
+        dur = durations[i]
+        tts_start = current_time
+        tts_end = current_time + dur
+        count = 0
+        j = sub_idx
+        while j < len(sub_lines):
+            if j == sub_idx:
+                count += 1
+                j += 1
+            elif j < len(sub_lines) and count < 10:
+                count += 1
+                j += 1
+            else:
+                break
+            if count >= 10 or j >= len(sub_lines):
+                break
+        if sub_idx + count > len(sub_lines):
+            count = len(sub_lines) - sub_idx
+        if count <= 0:
+            current_time = tts_end
+            continue
+        if count == 1:
+            s_h = int(tts_start // 3600)
+            s_m = int((tts_start % 3600) // 60)
+            s_s = int(tts_start % 60)
+            s_ms = int((tts_start % 1) * 1000)
+            e_h = int(tts_end // 3600)
+            e_m = int((tts_end % 3600) // 60)
+            e_s = int(tts_end % 60)
+            e_ms = int((tts_end % 1) * 1000)
+            srt += f"{seq}\n"
+            srt += f"{s_h:02d}:{s_m:02d}:{s_s:02d},{s_ms:03d} --> "
+            srt += f"{e_h:02d}:{e_m:02d}:{e_s:02d},{e_ms:03d}\n"
+            srt += f"{sub_lines[sub_idx].strip()}\n\n"
+            seq += 1
+            sub_idx += 1
+        else:
+            chunk_dur = dur / count
+            for c in range(count):
+                c_start = tts_start + c * chunk_dur
+                c_end = tts_start + (c + 1) * chunk_dur
+                s_h = int(c_start // 3600)
+                s_m = int((c_start % 3600) // 60)
+                s_s = int(c_start % 60)
+                s_ms = int((c_start % 1) * 1000)
+                e_h = int(c_end // 3600)
+                e_m = int((c_end % 3600) // 60)
+                e_s = int(c_end % 60)
+                e_ms = int((c_end % 1) * 1000)
+                srt += f"{seq}\n"
+                srt += f"{s_h:02d}:{s_m:02d}:{s_s:02d},{s_ms:03d} --> "
+                srt += f"{e_h:02d}:{e_m:02d}:{e_s:02d},{e_ms:03d}\n"
+                srt += f"{sub_lines[sub_idx + c].strip()}\n\n"
+                seq += 1
+            sub_idx += count
+        current_time = tts_end
+    while sub_idx < len(sub_lines):
+        s_h = int(current_time // 3600)
+        s_m = int((current_time % 3600) // 60)
+        s_s = int(current_time % 60)
+        s_ms = int((current_time % 1) * 1000)
+        e_time = current_time + 2.0
+        e_h = int(e_time // 3600)
+        e_m = int((e_time % 3600) // 60)
+        e_s = int(e_time % 60)
+        e_ms = int((e_time % 1) * 1000)
+        srt += f"{seq}\n"
+        srt += f"{s_h:02d}:{s_m:02d}:{s_s:02d},{s_ms:03d} --> "
+        srt += f"{e_h:02d}:{e_m:02d}:{e_s:02d},{e_ms:03d}\n"
+        srt += f"{sub_lines[sub_idx].strip()}\n\n"
+        seq += 1
+        sub_idx += 1
+        current_time = e_time
+    return srt
+
+
 def merge_final_video(videos, audio_data, srt_text, sub_style):
     try:
         if not videos:
@@ -412,6 +496,8 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
             outline_w = sub_style.get("outline_width", 2) if sub_style else 2
             bg_opacity_float = sub_style.get("bg_opacity", 0.5) if sub_style else 0.5
             bg_hex = format(int(bg_opacity_float * 255), '02X')
+            line_sp = sub_style.get("line_spacing", 1.4) if sub_style else 1.4
+            spacing_val = int((line_sp - 1.0) * font_size)
 
             hex_color = sub_style.get("color", "#FFFFFF") if sub_style else "#FFFFFF"
             hex_color = hex_color.lstrip("#")
@@ -439,6 +525,7 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
                     + ",BorderStyle=3"
                     + ",Alignment=2"
                     + ",MarginV=30"
+                    + ",Spacing=" + str(spacing_val)
                     + "'"
                     + ":fontsdir='" + font_dir_escaped + "'"
                 )
@@ -453,6 +540,7 @@ def merge_final_video(videos, audio_data, srt_text, sub_style):
                     + ",BorderStyle=3"
                     + ",Alignment=2"
                     + ",MarginV=30"
+                    + ",Spacing=" + str(spacing_val)
                     + "'"
                 )
 
@@ -959,6 +1047,9 @@ with tab5:
         else:
             sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
 
+        if "line_spacing" not in sub_style:
+            sub_style["line_spacing"] = 1.4
+
         if not st.session_state.get("edited_sub_lines") or len(st.session_state["edited_sub_lines"]) != len(lines):
             st.session_state["edited_sub_lines"] = list(lines)
 
@@ -985,6 +1076,12 @@ with tab5:
             sub_style["margin_v"] = st.slider("상하 여백", 0, 100, sub_style.get("margin_v", 30), key="sub_margin_v")
         with col_s8:
             sub_style["bg_opacity"] = st.slider("배경 투명도", 0.0, 1.0, sub_style.get("bg_opacity", 0.5), step=0.1, key="sub_bg_opacity")
+
+        col_s9, col_s10 = st.columns(2)
+        with col_s9:
+            sub_style["line_spacing"] = st.slider("줄간격", 1.0, 3.0, sub_style.get("line_spacing", 1.4), step=0.1, key="sub_line_spacing")
+        with col_s10:
+            st.caption("줄간격 1.0 = 촘촘 / 1.5 = 기본 / 2.0 = 넓음 / 3.0 = 매우 넓음")
 
         if ct == "쇼츠":
             st.session_state["subtitle_style_shorts"] = sub_style
@@ -1039,11 +1136,12 @@ with tab5:
 
         font_size_px = str(sub_style.get("size", 28))
         font_color = sub_style.get("color", "#FFFFFF")
+        line_height_val = str(sub_style.get("line_spacing", 1.4))
 
         preview_html = '<style>@import url("' + font_import + '");</style>'
         preview_html = preview_html + '<div style="width:' + box_w + ';height:' + box_h + ';background:#1a1a2e;border:2px solid #444;border-radius:8px;display:flex;align-items:' + vert_align + ';justify-content:center;' + pad_area + 'margin:0 auto;">'
         preview_html = preview_html + '<div style="background:rgba(' + str(bg_r) + ',' + str(bg_g) + ',' + str(bg_b) + ',' + str(bg_a) + ');padding:10px 24px;border-radius:6px;width:85%;text-align:center;">'
-        preview_html = preview_html + '<span style="font-family:' + "'" + font_name + "'" + ',sans-serif;font-size:' + font_size_px + 'px;color:' + font_color + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;overflow-wrap:break-word;white-space:normal;line-height:1.5;">'
+        preview_html = preview_html + '<span style="font-family:' + "'" + font_name + "'" + ',sans-serif;font-size:' + font_size_px + 'px;color:' + font_color + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;overflow-wrap:break-word;white-space:normal;line-height:' + line_height_val + ';">'
         preview_html = preview_html + preview_text
         preview_html = preview_html + '</span></div></div>'
 
@@ -1073,8 +1171,8 @@ with tab5:
         list_html = list_html + '</div>'
         st.markdown(list_html, unsafe_allow_html=True)
         st.caption("빨간색: 30자 초과 / 노란색: 20~30자 / 초록색: 20자 이하")
-                st.divider()
-                
+
+        st.divider()
         st.subheader("긴 자막 자동 분할")
         max_chars = st.slider("한 줄 최대 글자수", 10, 40, 20, key="max_sub_chars")
         if st.button("긴 자막 자동 분할", key="btn_auto_split_subs", use_container_width=True):
@@ -1099,7 +1197,7 @@ with tab5:
                         new_lines.append(current.strip())
             st.session_state["edited_sub_lines"] = new_lines
             st.success("분할 완료! " + str(len(original)) + "개 → " + str(len(new_lines)) + "개")
-            st.warning("분할 후 반드시 TTS 음성 수와 맞는지 확인하세요. 자막 수가 늘어나면 SRT를 다시 생성해야 합니다.")
+            st.warning("자막이 분할되었습니다. 아래에서 SRT를 다시 생성하면 음성 싱크에 맞춰 자동 배분됩니다.")
             st.rerun()
 
         st.divider()
@@ -1122,10 +1220,12 @@ with tab5:
         with col_b2:
             if st.button("SRT 자막 생성", key="btn_gen_srt", use_container_width=True):
                 sub_lines = st.session_state.get("edited_sub_lines", lines)
-                min_len = min(len(sub_lines), len(durations))
-                srt = generate_srt(sub_lines[:min_len], durations[:min_len])
+                if len(sub_lines) == len(durations):
+                    srt = generate_srt(sub_lines, durations)
+                else:
+                    srt = generate_srt_split(sub_lines, durations)
                 st.session_state["srt_content"] = srt
-                st.success("SRT 생성 완료!")
+                st.success("SRT 생성 완료! (자막 " + str(len(sub_lines)) + "개 / 음성 " + str(len(durations)) + "개)")
 
         if st.session_state.get("srt_content"):
             with st.expander("SRT 내용 확인"):

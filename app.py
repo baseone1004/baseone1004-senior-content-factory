@@ -767,20 +767,20 @@ with tab1:
         st.divider()
         st.subheader("추천 주제 TOP 10")
         raw = st.session_state["topic_recommendations"]
-               cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
+        cleaned_raw = raw.replace("```json", "").replace("```JSON", "").replace("```", "").strip()
         if cleaned_raw.startswith("json"):
-            cleaned_raw = cleaned_raw[4:].strip()
+        cleaned_raw = cleaned_raw[4:].strip()
         cleaned_raw = cleaned_raw.replace("\u201c", '"').replace("\u201d", '"')
         cleaned_raw = cleaned_raw.replace("\u2018", "'").replace("\u2019", "'")
         cleaned_raw = cleaned_raw.replace("\uff02", '"')
         if not cleaned_raw.startswith("["):
-            bracket_pos = cleaned_raw.find("[")
-            if bracket_pos != -1:
-                cleaned_raw = cleaned_raw[bracket_pos:]
+        bracket_pos = cleaned_raw.find("[")
+        if bracket_pos != -1:
+        cleaned_raw = cleaned_raw[bracket_pos:]
         if not cleaned_raw.endswith("]"):
-            bracket_pos = cleaned_raw.rfind("]")
-            if bracket_pos != -1:
-                cleaned_raw = cleaned_raw[:bracket_pos + 1]
+        bracket_pos = cleaned_raw.rfind("]")
+        if bracket_pos != -1:
+        cleaned_raw = cleaned_raw[:bracket_pos + 1]
 
 
         json_match = re.search(r'\[.*\]', cleaned_raw, re.DOTALL)

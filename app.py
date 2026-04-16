@@ -1054,19 +1054,68 @@ with tab3:
     if num_lines == 0:
         st.warning("탭2에서 먼저 대본을 저장해주세요.")
     else:
-        st.info(f"대본 {num_lines}문장 → 영상 {num_lines}개 필요. 장면별 영상(mp4)을 업로드하세요.")
-        video_upload = st.file_uploader("영상 파일 선택 (복수 가능)", type=["mp4", "mov", "avi", "mkv"], accept_multiple_files=True, key="video_upload")
-        if video_upload:
-            if st.button("영상 저장", key="btn_save_videos", use_container_width=True):
-                uploaded = []
-                for f in sorted(video_upload, key=lambda x: x.name):
-                    uploaded.append({"name": f.name, "bytes": f.getvalue()})
-                st.session_state["uploaded_videos"] = uploaded
-                st.success(f"{len(uploaded)}개 영상 저장됨.")
-                if len(uploaded) < num_lines:
-                    st.warning(f"영상 {len(uploaded)}개 < 문장 {num_lines}개. 부족분은 마지막 영상 반복.")
-                elif len(uploaded) > num_lines:
-                    st.warning(f"영상 {len(uploaded)}개 > 문장 {num_lines}개. 초과분 무시.")
+        st.info(f"대본 {num_lines}문장 → 영상 {num_lines}개 필요. 여러 번 나눠서 업로드할 수 있습니다. (최대 300개)")
+
+        # 누적 업로드를 위한 초기화
+        if "accumulated_videos" not in st.session_state:
+            st.session_state["accumulated_videos"] = []
+
+        video_upload = st.file_uploader(
+            "영상 파일 선택 (한 번에 50개씩 권장, 여러 번 추가 가능)",
+            type=["mp4", "mov", "avi", "mkv"],
+            accept_multiple_files=True,
+            key="video_upload"
+        )
+
+        col_up1, col_up2, col_up3 = st.columns(3)
+        with col_up1:
+            if st.button("이 파일들 추가", key="btn_add_videos", use_container_width=True):
+                if video_upload:
+                    added = 0
+                    existing_names = set(v["name"] for v in st.session_state["accumulated_videos"])
+                    for f in sorted(video_upload, key=lambda x: x.name):
+                        if len(st.session_state["accumulated_videos"]) >= 300:
+                            st.warning("최대 300개까지만 업로드 가능합니다.")
+                            break
+                        if f.name not in existing_names:
+                            st.session_state["accumulated_videos"].append({"name": f.name, "bytes": f.getvalue()})
+                            existing_names.add(f.name)
+                            added += 1
+                    total = len(st.session_state["accumulated_videos"])
+                    st.success(f"{added}개 추가됨. 현재 총 {total}개 / 필요 {num_lines}개")
+                else:
+                    st.warning("파일을 먼저 선택해주세요.")
+
+        with col_up2:
+            if st.button("전체 영상 확정", key="btn_confirm_videos", use_container_width=True):
+                if st.session_state["accumulated_videos"]:
+                    st.session_state["uploaded_videos"] = list(st.session_state["accumulated_videos"])
+                    total = len(st.session_state["uploaded_videos"])
+                    st.success(f"총 {total}개 영상 확정 완료!")
+                    if total < num_lines:
+                        st.warning(f"영상 {total}개 < 문장 {num_lines}개. 부족분은 마지막 영상 반복.")
+                    elif total > num_lines:
+                        st.warning(f"영상 {total}개 > 문장 {num_lines}개. 초과분 무시.")
+                else:
+                    st.warning("추가된 영상이 없습니다.")
+
+        with col_up3:
+            if st.button("업로드 초기화", key="btn_reset_videos", use_container_width=True):
+                st.session_state["accumulated_videos"] = []
+                st.session_state["uploaded_videos"] = []
+                st.success("영상 업로드가 초기화되었습니다.")
+                st.rerun()
+
+        # 현재 누적 상태 표시
+        acc_count = len(st.session_state.get("accumulated_videos", []))
+        if acc_count > 0:
+            acc_size = sum(len(v["bytes"]) for v in st.session_state["accumulated_videos"]) / 1024 / 1024
+            st.markdown(
+                '<div style="background:#1a1a2e; border:2px solid #FF8800; border-radius:8px; padding:12px; margin-top:8px;">'
+                + '<span style="color:#FF8800;">누적 대기중:</span>'
+                + '<span style="color:#FFF; font-weight:bold; margin-left:8px;">' + str(acc_count) + '개 / ' + f"{acc_size:.1f}" + 'MB</span>'
+                + '<span style="color:#AAA; margin-left:12px;">(확정 버튼을 누르면 최종 반영됩니다)</span></div>',
+                unsafe_allow_html=True)
 
         if st.session_state.get("uploaded_videos"):
             st.divider()
@@ -1074,12 +1123,14 @@ with tab3:
             total_size = sum(len(v["bytes"]) for v in videos) / 1024 / 1024
             st.markdown(
                 '<div style="background:#1a2e1a; border:2px solid #4CAF50; border-radius:8px; padding:12px;">'
-                + '<span style="color:#88CC88;">저장된 영상:</span>'
+                + '<span style="color:#88CC88;">확정된 영상:</span>'
                 + '<span style="color:#FFF; font-weight:bold; margin-left:8px;">' + str(len(videos)) + '개 / ' + f"{total_size:.1f}" + 'MB</span>'
                 + '<span style="color:#AAA; margin-left:12px;">(필요: ' + str(num_lines) + '개)</span></div>',
                 unsafe_allow_html=True)
-            with st.expander("영상 목록"):
-                for i, v in enumerate(videos):
+            with st.expander("영상 목록 (처음 50개만 표시)"):
+                show_count = min(len(videos), 50)
+                for i in range(show_count):
+                    v = videos[i]
                     sz = len(v["bytes"]) / 1024 / 1024
                     lt = st.session_state["script_lines"][i] if i < num_lines else ""
                     st.markdown(
@@ -1088,6 +1139,8 @@ with tab3:
                         + '<span style="color:#FFF; margin-left:8px;">' + v["name"] + ' (' + f"{sz:.1f}" + 'MB)</span>'
                         + '<span style="color:#AAA; margin-left:8px; font-size:12px;">' + lt[:40] + '</span></div>',
                         unsafe_allow_html=True)
+                if len(videos) > 50:
+                    st.caption("... 외 " + str(len(videos) - 50) + "개 더 있음")
 
 with tab4:
     st.header("TTS 음성 생성")
@@ -1185,7 +1238,8 @@ with tab5:
         if "line_spacing" not in sub_style:
             sub_style["line_spacing"] = 20
 
-        if not st.session_state.get("edited_sub_lines") or len(st.session_state["edited_sub_lines"]) != len(lines):
+        # 수정: 자동분할 후 덮어쓰기 방지 - 비어있을 때만 초기화
+        if not st.session_state.get("edited_sub_lines"):
             st.session_state["edited_sub_lines"] = list(lines)
 
         st.subheader("자막 스타일 설정")
@@ -1229,7 +1283,7 @@ with tab5:
         edited_lines = st.session_state["edited_sub_lines"]
         total_subs = len(edited_lines)
 
-        preview_num = st.number_input("미리볼 자막 번호", min_value=1, max_value=total_subs, value=1, step=1, key="preview_num_input")
+        preview_num = st.number_input("미리볼 자막 번호", min_value=1, max_value=max(total_subs, 1), value=1, step=1, key="preview_num_input")
         preview_idx = preview_num - 1
         preview_text = edited_lines[preview_idx] if preview_idx < len(edited_lines) else ""
         preview_dur = durations[preview_idx] if preview_idx < len(durations) else 3.0
@@ -1314,6 +1368,7 @@ with tab5:
         if st.button("긴 자막 자동 분할", key="btn_auto_split_subs", use_container_width=True):
             original = st.session_state.get("edited_sub_lines", [])
             new_lines = []
+            split_count = 0
             for line in original:
                 line = line.strip()
                 if not line:
@@ -1321,19 +1376,75 @@ with tab5:
                 if len(line) <= max_chars:
                     new_lines.append(line)
                 else:
+                    # 공백 기준 분할 시도
                     words = line.split(" ")
-                    current = ""
-                    for w in words:
-                        if current and len(current + " " + w) > max_chars:
+                    if len(words) >= 2:
+                        current = ""
+                        for w in words:
+                            if current and len(current + " " + w) > max_chars:
+                                new_lines.append(current.strip())
+                                current = w
+                            else:
+                                current = current + " " + w if current else w
+                        if current.strip():
                             new_lines.append(current.strip())
-                            current = w
-                        else:
-                            current = current + " " + w if current else w
-                    if current.strip():
-                        new_lines.append(current.strip())
+                        # 분할 후에도 긴 조각이 있으면 강제 분할
+                        final_new = []
+                        for nl in new_lines[len(new_lines) - len(words):]:
+                            if len(nl) > max_chars:
+                                pos = 0
+                                while pos < len(nl):
+                                    chunk = nl[pos:pos + max_chars]
+                                    if len(chunk) == max_chars and pos + max_chars < len(nl):
+                                        cut = -1
+                                        for sep in [".", "?", ",", "요", "다", "고", "는", "을", "를", "이", "가", "에", "서", "로", "며"]:
+                                            idx = chunk.rfind(sep)
+                                            if idx >= max_chars // 2:
+                                                cut = idx + 1
+                                                break
+                                        if cut > 0:
+                                            final_new.append(nl[pos:pos + cut].strip())
+                                            pos += cut
+                                        else:
+                                            final_new.append(chunk.strip())
+                                            pos += max_chars
+                                    else:
+                                        final_new.append(chunk.strip())
+                                        pos += max_chars
+                            else:
+                                final_new.append(nl)
+                        # 원래 new_lines에서 해당 부분 교체
+                        split_count += 1
+                    else:
+                        # 공백이 없는 한국어 문장: 글자수 기준 강제 분할
+                        pos = 0
+                        while pos < len(line):
+                            chunk = line[pos:pos + max_chars]
+                            if len(chunk) == max_chars and pos + max_chars < len(line):
+                                cut = -1
+                                for sep in [".", "?", ",", "요", "다", "고", "는", "을", "를", "이", "가", "에", "서", "로", "며"]:
+                                    idx = chunk.rfind(sep)
+                                    if idx >= max_chars // 2:
+                                        cut = idx + 1
+                                        break
+                                if cut > 0:
+                                    new_lines.append(line[pos:pos + cut].strip())
+                                    pos += cut
+                                else:
+                                    new_lines.append(chunk.strip())
+                                    pos += max_chars
+                            else:
+                                if chunk.strip():
+                                    new_lines.append(chunk.strip())
+                                pos += max_chars
+                        split_count += 1
+
             st.session_state["edited_sub_lines"] = new_lines
-            st.success("분할 완료! " + str(len(original)) + "개 → " + str(len(new_lines)) + "개")
-            st.warning("자막이 분할되었습니다. 아래에서 SRT를 다시 생성하면 음성 싱크에 맞춰 자동 배분됩니다.")
+            if split_count > 0:
+                st.success("분할 완료! " + str(len(original)) + "개 → " + str(len(new_lines)) + "개 (" + str(split_count) + "개 자막 분할됨)")
+                st.warning("자막이 분할되었습니다. 아래에서 SRT를 다시 생성하면 음성 싱크에 맞춰 자동 배분됩니다.")
+            else:
+                st.info("모든 자막이 " + str(max_chars) + "자 이하입니다. 분할할 자막이 없습니다.")
             st.rerun()
 
         st.divider()

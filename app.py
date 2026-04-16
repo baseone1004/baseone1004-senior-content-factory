@@ -816,9 +816,16 @@ with tab5:
         st.divider()
         st.subheader("자막 미리보기")
 
-        preview_idx = st.slider("미리볼 자막 번호", 1, len(lines), 1, key="preview_idx") - 1
-        preview_text = st.session_state["edited_sub_lines"][preview_idx] if preview_idx < len(st.session_state["edited_sub_lines"]) else ""
+        edited_lines = st.session_state["edited_sub_lines"]
+        total_subs = len(edited_lines)
+
+        preview_num = st.number_input("미리볼 자막 번호", min_value=1, max_value=total_subs, value=1, step=1, key="preview_num_input")
+        preview_idx = preview_num - 1
+        preview_text = edited_lines[preview_idx] if preview_idx < len(edited_lines) else ""
         preview_dur = durations[preview_idx] if preview_idx < len(durations) else 3.0
+
+        font_name = FONT_MAP.get(sub_style.get("font", "나눔고딕 볼드"), "NanumGothicBold")
+        font_import = "https://fonts.googleapis.com/css2?family=" + font_name.replace(" ", "+") + "&display=swap"
 
         pos_val = sub_style.get("position", "하단")
         if pos_val == "상단":
@@ -847,20 +854,49 @@ with tab5:
             box_w = "533px"
             box_h = "300px"
 
-        preview_html = '<div style="width:' + box_w + ';height:' + box_h + ';background:#1a1a2e;border:2px solid #444;border-radius:8px;display:flex;align-items:' + vert_align + ';justify-content:center;' + pad_area + 'margin:0 auto;">'
-        preview_html = preview_html + '<div style="background:rgba(' + str(bg_r) + ',' + str(bg_g) + ',' + str(bg_b) + ',' + str(bg_a) + ');padding:6px 16px;border-radius:4px;max-width:90%;text-align:center;">'
-        preview_html = preview_html + '<span style="font-size:' + str(sub_style.get("size", 28)) + 'px;color:' + sub_style.get("color", "#FFFFFF") + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;">'
+        font_size_px = str(sub_style.get("size", 28))
+        font_color = sub_style.get("color", "#FFFFFF")
+
+        preview_html = ""
+        preview_html = preview_html + '<style>@import url("' + font_import + '");</style>'
+        preview_html = preview_html + '<div style="width:' + box_w + ';height:' + box_h + ';background:#1a1a2e;border:2px solid #444;border-radius:8px;display:flex;align-items:' + vert_align + ';justify-content:center;' + pad_area + 'margin:0 auto;">'
+        preview_html = preview_html + '<div style="background:rgba(' + str(bg_r) + ',' + str(bg_g) + ',' + str(bg_b) + ',' + str(bg_a) + ');padding:8px 20px;border-radius:4px;max-width:90%;text-align:center;">'
+        preview_html = preview_html + '<span style="font-family:' + "'" + font_name + "'" + ',sans-serif;font-size:' + font_size_px + 'px;color:' + font_color + ';text-shadow:' + shadow_str + ';font-weight:bold;word-break:keep-all;line-height:1.4;">'
         preview_html = preview_html + preview_text
         preview_html = preview_html + '</span></div></div>'
 
         st.markdown(preview_html, unsafe_allow_html=True)
-        st.caption(str(preview_idx + 1) + "번 자막 / " + str(round(preview_dur, 1)) + "초")
+        st.caption(str(preview_num) + "번 자막 (총 " + str(total_subs) + "개) / " + str(round(preview_dur, 1)) + "초 / 글자수: " + str(len(preview_text)))
+
+        st.divider()
+        st.subheader("자막 목록 한눈에 보기")
+
+        list_html = '<div style="max-height:400px;overflow-y:auto;border:1px solid #333;border-radius:8px;padding:8px;">'
+        for si in range(total_subs):
+            s_text = edited_lines[si] if si < len(edited_lines) else ""
+            s_dur = durations[si] if si < len(durations) else 3.0
+            char_count = len(s_text)
+            if char_count > 30:
+                row_color = "#FF6B6B"
+            elif char_count > 20:
+                row_color = "#FFD93D"
+            else:
+                row_color = "#6BCB77"
+            list_html = list_html + '<div style="padding:4px 8px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;">'
+            list_html = list_html + '<span style="color:#888;font-size:12px;min-width:40px;">' + str(si + 1).zfill(3) + '</span>'
+            list_html = list_html + '<span style="color:#AAA;font-size:11px;min-width:50px;">' + str(round(s_dur, 1)) + '초</span>'
+            list_html = list_html + '<span style="color:' + row_color + ';font-size:11px;min-width:40px;">' + str(char_count) + '자</span>'
+            list_html = list_html + '<span style="color:#DDD;font-size:13px;margin-left:8px;">' + s_text + '</span>'
+            list_html = list_html + '</div>'
+        list_html = list_html + '</div>'
+        st.markdown(list_html, unsafe_allow_html=True)
+        st.caption("빨간색: 30자 초과 (길어서 잘릴 수 있음) / 노란색: 20~30자 / 초록색: 20자 이하 (적당)")
 
         st.divider()
         st.subheader("자막 텍스트 편집")
 
         all_sub_text = "\n".join(st.session_state["edited_sub_lines"])
-        edited_all = st.text_area("자막 전체 편집 (한 줄에 하나씩)", value=all_sub_text, height=400, key="bulk_sub_edit")
+        edited_all = st.text_area("자막 전체 편집 (한 줄에 하나씩, 엔터로 구분)", value=all_sub_text, height=400, key="bulk_sub_edit")
 
         col_b1, col_b2 = st.columns(2)
         with col_b1:
@@ -912,16 +948,22 @@ with tab6:
             sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
 
         ok_audio = len([a for a in audio_data if a])
-        st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;">' + '<span style="color:#88CC88;">준비 상태:</span>' + '<span style="color:#FFF;font-weight:bold;margin-left:8px;">' + "영상 " + str(len(videos)) + "개 / 음성 " + str(ok_audio) + "개 / 자막 준비됨" + '</span></div>', unsafe_allow_html=True)
+        st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;"><span style="color:#88CC88;">준비 상태:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">영상 ' + str(len(videos)) + '개 / 음성 ' + str(ok_audio) + '개 / 자막 준비됨</span></div>', unsafe_allow_html=True)
+
+        st.info("Streamlit Cloud에서 영상 합치기는 서버 성능 제한이 있습니다. 49개 영상은 시간이 오래 걸릴 수 있습니다.")
 
         if st.button("최종 영상 합치기", key="btn_merge_final", use_container_width=True):
-            with st.spinner("영상을 합치고 있습니다. 잠시만 기다려주세요..."):
-                result, err = merge_final_video(videos, audio_data, srt, sub_style)
-                if err:
-                    st.error(err)
-                elif result:
-                    st.session_state["final_video"] = result
-                    st.success("최종 영상 완성!")
+            ffmpeg_check = shutil.which("ffmpeg")
+            if not ffmpeg_check:
+                st.error("ffmpeg가 설치되어 있지 않습니다. 저장소에 packages.txt 파일을 만들고 안에 ffmpeg 한 줄을 적은 뒤 재배포해주세요.")
+            else:
+                with st.spinner("영상을 합치고 있습니다. 49개 영상이라 시간이 걸립니다. 잠시만 기다려주세요..."):
+                    result, err = merge_final_video(videos, audio_data, srt, sub_style)
+                    if err:
+                        st.error(err)
+                    elif result:
+                        st.session_state["final_video"] = result
+                        st.success("최종 영상 완성!")
 
         if st.session_state.get("final_video"):
             st.divider()
@@ -931,3 +973,4 @@ with tab6:
             st.caption("파일 크기: " + str(round(file_size, 1)) + "MB")
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             st.download_button("영상 다운로드", data=st.session_state["final_video"], file_name="final_" + ts + ".mp4", mime="video/mp4", key="dl_final_video", use_container_width=True)
+/mp4", key="dl_final_video", use_container_width=True)

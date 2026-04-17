@@ -1,1294 +1,616 @@
-import streamlit as st
-import requests
-import json
-import os
-import re
-import time
-import base64
-import subprocess
 import tempfile
+import zipfile
+import os
 import shutil
-from datetime import datetime
-from pathlib import Path
+import subprocess
+import streamlit as st
 
-st.set_page_config(page_title="시니어 콘텐츠 공장 v5.0", layout="wide")
+# ─── 페이지 설정 ───
+st.set_page_config(page_title="쇼츠 제작 도구", layout="wide")
+st.title("쇼츠 제작 도구")
 
+# ─── 상수 ───
+MAX_VIDEO_COUNT = 500
 
-def load_key(name):
-    v = os.environ.get(name, "")
-    if not v:
-        try:
-            v = st.secrets.get(name, "")
-        except Exception:
-            v = ""
-    return v.strip() if v else ""
-
-
-GEMINI_API_KEY = load_key("GEMINI_API_KEY")
-INWORLD_API_KEY = load_key("INWORLD_API_KEY")
-
-VOICE_OPTIONS = {
-    "민지 (활기찬 여성)": "Minji",
-    "윤아 (차분한 여성)": "Yoona",
-    "현우 (젊은 남성)": "Hyunwoo",
-    "서준 (성숙한 남성)": "Seojun",
-}
-
-FONT_MAP = {
-    "나눔고딕": "NanumGothic",
-    "나눔고딕 볼드": "NanumGothicBold",
-    "나눔명조": "NanumMyeongjo",
-    "나눔명조 볼드": "NanumMyeongjoBold",
-    "나눔바른고딕": "NanumBarunGothic",
-    "나눔스퀘어": "NanumSquare",
-    "나눔스퀘어 볼드": "NanumSquareBold",
-    "나눔바른펜": "NanumBarunpen",
-    "나눔브러쉬": "NanumBrush",
-    "나눔손글씨 펜": "NanumPen",
-    "배달의민족 주아": "BMJUA",
-    "배달의민족 한나": "BMHanna",
-    "배달의민족 도현": "BMDoHyeon",
-    "블랙한산스": "BlackHanSans",
-    "이사만루 볼드": "East Sea Dokdo",
-    "송명체": "Song Myung",
-    "감자꽃마을": "Gamja Flower",
-    "검은고딕": "Black And White Picture",
-    "고딕 A1": "Gothic A1",
-    "도현체": "Do Hyeon",
-}
-FONT_LIST = list(FONT_MAP.keys())
-
-DEFAULT_SUB_LONG = {
-    "font": "나눔고딕 볼드",
-    "size": 28,
-    "color": "#FFFFFF",
-    "outline_color": "#000000",
-    "outline_width": 2,
-    "position": "하단",
-    "margin_v": 30,
-    "margin_l": 10,
-    "margin_r": 10,
-    "bg_opacity": 0.5,
-    "line_spacing": 20,
-}
-DEFAULT_SUB_SHORTS = {
-    "font": "배달의민족 주아",
-    "size": 36,
-    "color": "#FFFF00",
-    "outline_color": "#000000",
-    "outline_width": 3,
-    "position": "중앙",
-    "margin_v": 0,
-    "margin_l": 10,
-    "margin_r": 10,
-    "bg_opacity": 0.0,
-    "line_spacing": 20,
-}
-
-defaults = {
-    "selected_topic": "",
-    "selected_category": "경제/사회",
-    "script_text": "",
-    "script_lines": [],
-    "uploaded_videos": [],
-    "tts_audio_data": [],
-    "tts_durations": [],
-    "subtitle_style_long": dict(DEFAULT_SUB_LONG),
-    "subtitle_style_shorts": dict(DEFAULT_SUB_SHORTS),
-    "reference_image": None,
-    "content_type": "쇼츠",
-    "topic_recommendations": "",
-    "news_data": "",
-    "selected_topic_data": {},
-    "auto_script_result": "",
-    "srt_content": "",
-    "final_video": None,
-    "edited_sub_lines": [],
-    "video_save_dir": "",
-    "video_file_list": [],
-}
-for k, v in defaults.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
-
-if not st.session_state["video_save_dir"] or not os.path.exists(st.session_state["video_save_dir"]):
-    st.session_state["video_save_dir"] = tempfile.mkdtemp(prefix="vid_")
-
-with st.sidebar:
-    st.title("시니어 콘텐츠 공장 v5.0")
-    st.divider()
-    st.subheader("API 상태")
-    if GEMINI_API_KEY:
-        st.success("Gemini API: 연결됨")
-    else:
-        st.error("Gemini API: 키 없음")
-    if INWORLD_API_KEY:
-        st.success("Inworld TTS API: 연결됨")
-    else:
-        st.error("Inworld TTS API: 키 없음")
-    st.divider()
-    st.subheader("콘텐츠 설정")
-    content_type = st.radio("콘텐츠 유형", ["쇼츠", "롱폼"], key="content_type_radio")
-    st.session_state["content_type"] = content_type
-    st.divider()
-    st.subheader("레퍼런스 이미지")
-    ref_img = st.file_uploader("주인공 레퍼런스 이미지", type=["png", "jpg", "jpeg"], key="ref_img_upload")
-    if ref_img:
-        st.session_state["reference_image"] = ref_img.getvalue()
-        st.image(ref_img, width=150)
-    st.divider()
-    st.caption("문의: 시니어 콘텐츠 공장")
+# ─── 임시 디렉토리 초기화 ───
+if "video_save_dir" not in st.session_state:
+    st.session_state["video_save_dir"] = tempfile.mkdtemp()
+if "video_list" not in st.session_state:
+    st.session_state["video_list"] = []
+if "audio_save_dir" not in st.session_state:
+    st.session_state["audio_save_dir"] = tempfile.mkdtemp()
+if "audio_list" not in st.session_state:
+    st.session_state["audio_list"] = []
 
 
-def clean_special(text):
-    if not text:
-        return ""
-    text = re.sub(r'[*#_~`>|{}\[\]]', '', text)
-    lines = text.split('\n')
-    cleaned = []
-    for line in lines:
-        line = line.strip()
-        if line:
-            cleaned.append(line)
-    return '\n'.join(cleaned)
+# ============================================================
+#  탭1: 대본 작성
+# ============================================================
+def render_script_tab():
+    st.subheader("대본 작성")
+
+    if "script_text" not in st.session_state:
+        st.session_state["script_text"] = ""
+
+    script_input = st.text_area(
+        "대본을 입력하세요",
+        value=st.session_state["script_text"],
+        height=400,
+        key="script_input_area",
+        placeholder="여기에 쇼츠 대본을 붙여넣거나 작성하세요..."
+    )
+
+    if script_input != st.session_state["script_text"]:
+        st.session_state["script_text"] = script_input
+
+    if st.session_state["script_text"].strip():
+        sentences = [s.strip() for s in st.session_state["script_text"].replace("?", "?.").replace("!", "!.").split(".") if s.strip()]
+        st.info(f"문장 수: {len(sentences)}개")
+
+        with st.expander("문장 미리보기"):
+            for i, s in enumerate(sentences):
+                clean = s.rstrip(".").strip()
+                if clean:
+                    st.text(f"{i+1:03d}. {clean}")
 
 
-def clean_script(text):
-    if not text:
-        return ""
-    text = re.sub(r'\*\*([^*]+)\*\*', r'\1', text)
-    text = re.sub(r'\*([^*]+)\*', r'\1', text)
-    text = re.sub(r'[*#_~`>|{}\[\]]', '', text)
-    lines = text.split('\n')
-    cleaned = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-        sentences = re.split(r'(?<=[.?])\s+', line)
-        for s in sentences:
-            s = s.strip()
-            if s and len(s) > 2:
-                cleaned.append(s)
-    return '\n'.join(cleaned)
+# ============================================================
+#  탭2: 자막 편집
+# ============================================================
+def render_subtitle_tab():
+    st.subheader("자막 편집")
 
+    if not st.session_state.get("script_text", "").strip():
+        st.warning("대본 탭에서 먼저 대본을 입력하세요.")
+        return
 
-def safe_generate(prompt, system_prompt="", max_tokens=4096):
-    if not GEMINI_API_KEY:
-        return "오류: GEMINI_API_KEY가 설정되지 않았습니다."
-    models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"]
-    parts = []
-    if system_prompt:
-        parts.append({"text": "[System] " + system_prompt})
-    parts.append({"text": prompt})
-    payload = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {"maxOutputTokens": max_tokens, "temperature": 0.8}
-    }
-    last_error = ""
-    for model in models:
-        url = "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":generateContent?key=" + GEMINI_API_KEY
-        for attempt in range(3):
-            try:
-                resp = requests.post(url, json=payload, timeout=120)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    candidates = data.get("candidates", [])
-                    if candidates:
-                        content = candidates[0].get("content", {})
-                        parts_out = content.get("parts", [])
-                        if parts_out:
-                            return parts_out[0].get("text", "")
-                    return "오류: Gemini API 응답에 결과가 없습니다."
-                elif resp.status_code == 429:
-                    last_error = "할당량 초과 (모델: " + model + ", 시도: " + str(attempt + 1) + "/3)"
-                    time.sleep((attempt + 1) * 10)
-                    continue
-                elif resp.status_code == 404:
-                    last_error = "모델 없음 (모델: " + model + ")"
-                    break
-                else:
-                    last_error = "Gemini API 응답 " + str(resp.status_code) + " (모델: " + model + ")"
-                    break
-            except requests.exceptions.Timeout:
-                last_error = "시간 초과 (모델: " + model + ")"
-                break
-            except requests.exceptions.ConnectionError:
-                last_error = "연결 실패 (모델: " + model + ")"
-                break
-            except Exception as e:
-                last_error = str(e) + " (모델: " + model + ")"
-                break
-    return "오류: 모든 모델에서 실패했습니다. 마지막 오류: " + last_error
+    # 대본에서 자막 라인 추출
+    raw = st.session_state["script_text"]
+    lines = [s.strip() for s in raw.replace("?", "?.").replace("!", "!.").split(".") if s.strip()]
+    lines = [l.rstrip(".").strip() for l in lines if l.rstrip(".").strip()]
 
+    if not st.session_state.get("edited_sub_lines"):
+        st.session_state["edited_sub_lines"] = list(lines)
 
-def inworld_tts(text, voice_id="Minji", model_id="inworld-tts-1.5-max"):
-    if not INWORLD_API_KEY:
-        return None, "오류: INWORLD_API_KEY가 설정되지 않았습니다."
-    url = "https://api.inworld.ai/tts/v1/voice"
-    headers = {
-        "Authorization": "Basic " + INWORLD_API_KEY,
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "text": text[:2000],
-        "voiceId": voice_id,
-        "modelId": model_id,
-    }
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=120)
-        if resp.status_code == 200:
-            data = resp.json()
-            audio_b64 = data.get("audioContent", "")
-            if audio_b64:
-                return base64.b64decode(audio_b64), None
-            return None, "오류: 응답에 audioContent가 없습니다."
-        else:
-            return None, "오류: Inworld API " + str(resp.status_code) + " - " + resp.text[:300]
-    except Exception as e:
-        return None, "오류: " + str(e)
+    max_chars = st.slider("자막 최대 글자 수", min_value=10, max_value=60, value=25, key="max_chars_slider")
 
+    # ─── 긴 자막 자동 분할 ───
+    if st.button("긴 자막 자동 분할", key="btn_auto_split"):
+        original_lines = list(st.session_state["edited_sub_lines"])
+        new_lines = []
+        split_count = 0
 
-def get_audio_duration(audio_bytes):
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as tmp:
-            tmp.write(audio_bytes)
-            tmp_path = tmp.name
-        result = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", tmp_path],
-            capture_output=True, text=True, timeout=10
-        )
-        os.unlink(tmp_path)
-        if result.returncode == 0 and result.stdout.strip():
-            return float(result.stdout.strip())
-    except Exception:
-        pass
-    return max(len(audio_bytes) / 16000, 1.0)
-
-
-def generate_srt(lines, durations):
-    srt = ""
-    current_time = 0.0
-    for i, line in enumerate(lines):
-        dur = durations[i] if i < len(durations) else 3.0
-        start_h = int(current_time // 3600)
-        start_m = int((current_time % 3600) // 60)
-        start_s = int(current_time % 60)
-        start_ms = int((current_time % 1) * 1000)
-        end_time = current_time + dur
-        end_h = int(end_time // 3600)
-        end_m = int((end_time % 3600) // 60)
-        end_s = int(end_time % 60)
-        end_ms = int((end_time % 1) * 1000)
-        srt += str(i + 1) + "\n"
-        srt += f"{start_h:02d}:{start_m:02d}:{start_s:02d},{start_ms:03d} --> "
-        srt += f"{end_h:02d}:{end_m:02d}:{end_s:02d},{end_ms:03d}\n"
-        srt += line.strip() + "\n\n"
-        current_time = end_time
-    return srt
-
-
-def generate_srt_split(sub_lines, durations):
-    srt = ""
-    seq = 1
-    current_time = 0.0
-    sub_idx = 0
-    for i in range(len(durations)):
-        dur = durations[i]
-        tts_start = current_time
-        tts_end = current_time + dur
-        count = 0
-        j = sub_idx
-        while j < len(sub_lines):
-            if j == sub_idx:
-                count += 1
-                j += 1
-            elif j < len(sub_lines) and count < 10:
-                count += 1
-                j += 1
-            else:
-                break
-            if count >= 10 or j >= len(sub_lines):
-                break
-        if sub_idx + count > len(sub_lines):
-            count = len(sub_lines) - sub_idx
-        if count <= 0:
-            current_time = tts_end
-            continue
-        if count == 1:
-            s_h = int(tts_start // 3600)
-            s_m = int((tts_start % 3600) // 60)
-            s_s = int(tts_start % 60)
-            s_ms = int((tts_start % 1) * 1000)
-            e_h = int(tts_end // 3600)
-            e_m = int((tts_end % 3600) // 60)
-            e_s = int(tts_end % 60)
-            e_ms = int((tts_end % 1) * 1000)
-            srt += str(seq) + "\n"
-            srt += f"{s_h:02d}:{s_m:02d}:{s_s:02d},{s_ms:03d} --> "
-            srt += f"{e_h:02d}:{e_m:02d}:{e_s:02d},{e_ms:03d}\n"
-            srt += sub_lines[sub_idx].strip() + "\n\n"
-            seq += 1
-            sub_idx += 1
-        else:
-            chunk_dur = dur / count
-            for c in range(count):
-                c_start = tts_start + c * chunk_dur
-                c_end = tts_start + (c + 1) * chunk_dur
-                s_h = int(c_start // 3600)
-                s_m = int((c_start % 3600) // 60)
-                s_s = int(c_start % 60)
-                s_ms = int((c_start % 1) * 1000)
-                e_h = int(c_end // 3600)
-                e_m = int((c_end % 3600) // 60)
-                e_s = int(c_end % 60)
-                e_ms = int((c_end % 1) * 1000)
-                srt += str(seq) + "\n"
-                srt += f"{s_h:02d}:{s_m:02d}:{s_s:02d},{s_ms:03d} --> "
-                srt += f"{e_h:02d}:{e_m:02d}:{e_s:02d},{e_ms:03d}\n"
-                srt += sub_lines[sub_idx + c].strip() + "\n\n"
-                seq += 1
-            sub_idx += count
-        current_time = tts_end
-    while sub_idx < len(sub_lines):
-        s_h = int(current_time // 3600)
-        s_m = int((current_time % 3600) // 60)
-        s_s = int(current_time % 60)
-        s_ms = int((current_time % 1) * 1000)
-        e_time = current_time + 2.0
-        e_h = int(e_time // 3600)
-        e_m = int((e_time % 3600) // 60)
-        e_s = int(e_time % 60)
-        e_ms = int((e_time % 1) * 1000)
-        srt += str(seq) + "\n"
-        srt += f"{s_h:02d}:{s_m:02d}:{s_s:02d},{s_ms:03d} --> "
-        srt += f"{e_h:02d}:{e_m:02d}:{e_s:02d},{e_ms:03d}\n"
-        srt += sub_lines[sub_idx].strip() + "\n\n"
-        seq += 1
-        sub_idx += 1
-        current_time = e_time
-    return srt
-
-
-def generate_ass_subtitle(srt_text, sub_style, video_width=1080, video_height=1920):
-    font_name = FONT_MAP.get(sub_style.get("font", "나눔고딕 볼드"), "NanumGothicBold")
-    raw_size = sub_style.get("size", 28)
-    font_size = int(raw_size * (video_height / 360))
-    line_spacing = sub_style.get("line_spacing", 20)
-    outline_w = sub_style.get("outline_width", 2)
-    margin_v = sub_style.get("margin_v", 30)
-    bg_opacity_float = sub_style.get("bg_opacity", 0.5)
-    position = sub_style.get("position", "하단")
-    hex_color = sub_style.get("color", "#FFFFFF").lstrip("#")
-    if len(hex_color) == 6:
-        r_c = hex_color[0:2]
-        g_c = hex_color[2:4]
-        b_c = hex_color[4:6]
-        primary_color = "&H00" + b_c + g_c + r_c
-    else:
-        primary_color = "&H00FFFFFF"
-    hex_outline = sub_style.get("outline_color", "#000000").lstrip("#")
-    if len(hex_outline) == 6:
-        r_o = hex_outline[0:2]
-        g_o = hex_outline[2:4]
-        b_o = hex_outline[4:6]
-        outline_color = "&H00" + b_o + g_o + r_o
-    else:
-        outline_color = "&H00000000"
-    bg_alpha = format(int((1.0 - bg_opacity_float) * 255), '02X')
-    back_color = "&H" + bg_alpha + "000000"
-    if position == "상단":
-        alignment = 8
-    elif position == "중앙":
-        alignment = 5
-    else:
-        alignment = 2
-    border_style = 3 if bg_opacity_float > 0 else 1
-    ass = "[Script Info]\n"
-    ass += "Title: Subtitles\n"
-    ass += "ScriptType: v4.00+\n"
-    ass += "WrapStyle: 0\n"
-    ass += "ScaledBorderAndShadow: yes\n"
-    ass += "YCbCr Matrix: None\n"
-    ass += "PlayResX: " + str(video_width) + "\n"
-    ass += "PlayResY: " + str(video_height) + "\n"
-    ass += "\n"
-    ass += "[V4+ Styles]\n"
-    ass += "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
-    ass += "Style: Default," + font_name + "," + str(font_size) + "," + primary_color + ",&H000000FF," + outline_color + "," + back_color + ",-1,0,0,0,100,100,0,0," + str(border_style) + "," + str(outline_w) + ",0," + str(alignment) + ",20,20," + str(margin_v) + ",1\n"
-    ass += "\n"
-    ass += "[Events]\n"
-    ass += "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-    blocks = srt_text.strip().split("\n\n")
-    for block in blocks:
-        block = block.strip()
-        if not block:
-            continue
-        block_lines = block.split("\n")
-        if len(block_lines) < 3:
-            continue
-        time_line = block_lines[1].strip()
-        text_parts = block_lines[2:]
-        text = " ".join([t.strip() for t in text_parts if t.strip()])
-        time_match = re.match(r'(\d{2}):(\d{2}):(\d{2}),(\d{3})\s*-->\s*(\d{2}):(\d{2}):(\d{2}),(\d{3})', time_line)
-        if not time_match:
-            continue
-        sh = time_match.group(1)
-        sm = time_match.group(2)
-        ss = time_match.group(3)
-        sms = time_match.group(4)
-        eh = time_match.group(5)
-        em = time_match.group(6)
-        es = time_match.group(7)
-        ems = time_match.group(8)
-        start_ass = str(int(sh)) + ":" + sm + ":" + ss + "." + sms[:2]
-        end_ass = str(int(eh)) + ":" + em + ":" + es + "." + ems[:2]
-        if "\n" in text or len(text) > 25:
-            if "\n" in text:
-                parts = text.split("\n")
-            else:
-                mid = len(text) // 2
-                split_pos = text.rfind(" ", 0, mid + 5)
-                if split_pos == -1 or split_pos < 3:
-                    split_pos = text.find(" ", mid - 5)
-                if split_pos == -1 or split_pos < 3:
-                    split_pos = mid
-                parts = [text[:split_pos].strip(), text[split_pos:].strip()]
-            if line_spacing > 0 and len(parts) >= 2:
-                gap_fs = max(2, line_spacing)
-                ass_text = parts[0] + "\\N{\\fs" + str(gap_fs) + "} \\N{\\r}" + "\\N".join(parts[1:])
-            else:
-                ass_text = "\\N".join(parts)
-        else:
-            ass_text = text
-        ass += "Dialogue: 0," + start_ass + "," + end_ass + ",Default,,0,0,0,," + ass_text + "\n"
-    return ass
-
-
-def merge_final_video(videos, audio_data, srt_text, sub_style):
-    try:
-        if not videos:
-            return None, "영상 클립이 없습니다."
-        if not audio_data:
-            return None, "TTS 음성이 없습니다."
-        tmp_dir = tempfile.mkdtemp()
-        clip_paths = []
-        for i, v in enumerate(videos):
-            cp = os.path.join(tmp_dir, "clip_" + str(i).zfill(3) + ".mp4")
-            if isinstance(v, dict) and "path" in v:
-                if os.path.exists(v["path"]):
-                    shutil.copy2(v["path"], cp)
-                    clip_paths.append(cp)
-                else:
-                    continue
-            elif isinstance(v, dict) and "bytes" in v:
-                with open(cp, "wb") as f:
-                    f.write(v["bytes"])
-                clip_paths.append(cp)
-            else:
-                with open(cp, "wb") as f:
-                    f.write(v)
-                clip_paths.append(cp)
-        if not clip_paths:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return None, "유효한 영상 클립이 없습니다."
-        audio_paths = []
-        audio_index_map = []
-        for i, a in enumerate(audio_data):
-            if a is None:
+        for line in original_lines:
+            line = line.strip()
+            if not line:
                 continue
-            ap = os.path.join(tmp_dir, "audio_" + str(i).zfill(3) + ".mp3")
-            with open(ap, "wb") as f:
-                f.write(a)
-            audio_paths.append(ap)
-            audio_index_map.append(i)
-        if not audio_paths:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return None, "유효한 TTS 음성이 없습니다."
-        segment_paths = []
-        for j, ap in enumerate(audio_paths):
-            clip_idx = audio_index_map[j]
-            if clip_idx >= len(clip_paths):
-                clip_idx = len(clip_paths) - 1
-            dur_cmd = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", ap]
-            dur_result = subprocess.run(dur_cmd, capture_output=True, text=True)
-            try:
-                audio_dur = float(dur_result.stdout.strip())
-            except Exception:
-                audio_dur = 3.0
-            seg_path = os.path.join(tmp_dir, "seg_" + str(j).zfill(3) + ".mp4")
-            seg_cmd = ["ffmpeg", "-y", "-stream_loop", "-1", "-i", clip_paths[clip_idx], "-i", ap, "-t", str(audio_dur), "-map", "0:v:0", "-map", "1:a:0", "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", seg_path]
-            subprocess.run(seg_cmd, capture_output=True, text=True)
-            if os.path.exists(seg_path) and os.path.getsize(seg_path) > 0:
-                segment_paths.append(seg_path)
-        if not segment_paths:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return None, "세그먼트 생성에 실패했습니다."
-        concat_list = os.path.join(tmp_dir, "concat.txt")
-        with open(concat_list, "w") as f:
-            for sp in segment_paths:
-                f.write("file '" + sp + "'\n")
-        merged_nosub = os.path.join(tmp_dir, "merged_nosub.mp4")
-        concat_cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", concat_list, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", merged_nosub]
-        subprocess.run(concat_cmd, capture_output=True, text=True)
-        if not os.path.exists(merged_nosub) or os.path.getsize(merged_nosub) == 0:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return None, "영상 병합에 실패했습니다."
-        final_path = os.path.join(tmp_dir, "final_output.mp4")
-        if srt_text and srt_text.strip():
-            ct = sub_style.get("_content_type", "쇼츠")
-            if ct == "쇼츠":
-                v_w = 1080
-                v_h = 1920
+
+            if len(line) <= max_chars:
+                new_lines.append(line)
             else:
-                v_w = 1920
-                v_h = 1080
-            ass_content = generate_ass_subtitle(srt_text, sub_style, v_w, v_h)
-            ass_path = os.path.join(tmp_dir, "subs.ass")
-            with open(ass_path, "w", encoding="utf-8") as f:
-                f.write(ass_content)
-            font_candidates = ["/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf", "/usr/share/fonts/truetype/nanum/NanumGothic.ttf", "/usr/share/fonts/truetype/noto/NotoSansCJK-Bold.ttc", "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"]
-            font_dir = ""
-            for fp in font_candidates:
-                if os.path.exists(fp):
-                    font_dir = os.path.dirname(fp)
-                    break
-            ass_escaped = ass_path.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
-            if font_dir:
-                font_dir_escaped = font_dir.replace("\\", "\\\\").replace(":", "\\:")
-                ass_filter = "ass='" + ass_escaped + "':fontsdir='" + font_dir_escaped + "'"
-            else:
-                ass_filter = "ass='" + ass_escaped + "'"
-            sub_cmd = ["ffmpeg", "-y", "-i", merged_nosub, "-vf", ass_filter, "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", "-c:a", "copy", final_path]
-            sub_result = subprocess.run(sub_cmd, capture_output=True, text=True)
-            if not os.path.exists(final_path) or os.path.getsize(final_path) == 0:
-                err_msg = sub_result.stderr[-500:] if sub_result.stderr else "알 수 없는 오류"
-                st.warning("자막 번인 실패 - 자막 없이 생성합니다. 오류: " + err_msg)
-                shutil.copy2(merged_nosub, final_path)
-        else:
-            shutil.copy2(merged_nosub, final_path)
-        if os.path.exists(final_path) and os.path.getsize(final_path) > 0:
-            with open(final_path, "rb") as f:
-                video_bytes = f.read()
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return video_bytes, None
-        else:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-            return None, "최종 파일 생성에 실패했습니다."
-    except Exception as e:
-        return None, "오류 발생: " + str(e)
-
-
-def parse_topic_line(line):
-    line = line.strip()
-    if not line:
-        return None
-    if not re.match(r'^\d', line):
-        return None
-    parts = line.split("/")
-    if len(parts) < 3:
-        return None
-    num_match = re.match(r'^(\d+)', parts[0].strip())
-    if not num_match:
-        return None
-    num = int(num_match.group(1))
-    title = parts[1].strip() if len(parts) > 1 else ""
-    if not title:
-        return None
-    prob = 70
-    for p in parts:
-        p = p.strip()
-        if p.isdigit() and 50 <= int(p) <= 99:
-            prob = int(p)
-            break
-    source = ""
-    reason = ""
-    tags = ""
-    diff = "보통"
-    for p in parts[2:]:
-        p = p.strip()
-        if not p:
-            continue
-        if p.isdigit():
-            continue
-        if p in ["쉬움", "보통", "어려움"]:
-            diff = p
-        elif p == "적합":
-            continue
-        elif "뉴스" in p:
-            source = p
-        elif "," in p and len(p.split(",")) >= 2:
-            tags = p
-        elif not reason:
-            reason = p
-    return {"번호": num, "주제": title, "출처뉴스": source, "떡상확률": prob, "이유": reason, "추천태그": tags, "난이도": diff, "광고적합": "적합"}
-
-
-def split_korean_line(line, max_chars):
-    result = []
-    pos = 0
-    while pos < len(line):
-        if pos + max_chars >= len(line):
-            remainder = line[pos:].strip()
-            if remainder:
-                result.append(remainder)
-            break
-        chunk = line[pos:pos + max_chars]
-        cut = -1
-        for sep in [".", "?", ",", "요", "다", "고", "는", "을", "를", "이", "가", "에", "서", "로", "며", "면", "지", "든"]:
-            idx = chunk.rfind(sep)
-            if idx >= max_chars // 2:
-                cut = idx + 1
-                break
-        if cut > 0:
-            result.append(line[pos:pos + cut].strip())
-            pos += cut
-        else:
-            result.append(chunk.strip())
-            pos += max_chars
-    return result
-
-
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["1. 주제 추천", "2. 대본 입력", "3. 영상 업로드", "4. TTS 음성", "5. 자막 편집", "6. 최종 합치기"])
-
-with tab1:
-    st.header("주제 추천")
-    st.info("카테고리를 선택하면 최신 뉴스를 검색하고, Gemini가 떡상 확률과 함께 10개 주제를 추천합니다.")
-    categories = ["경제/사회", "부동산", "창업/자영업", "노동/일자리", "유흥/향락산업", "먹거리/외식", "범죄/사건사고", "심리학", "자기계발"]
-    selected_cat = st.selectbox("카테고리 선택", categories, index=categories.index(st.session_state.get("selected_category", "경제/사회")) if st.session_state.get("selected_category", "경제/사회") in categories else 0, key="cat_select")
-    st.session_state["selected_category"] = selected_cat
-
-    if st.button("주제 추천 받기", key="btn_recommend", use_container_width=True):
-        if not GEMINI_API_KEY:
-            st.error("Gemini API 키가 설정되지 않았습니다.")
-        else:
-            with st.spinner("최신 뉴스를 검색하고 있습니다..."):
-                news_search_prompt = '당신은 한국 뉴스 전문 리서처입니다.\n"' + selected_cat + '" 카테고리에서 지금 한국에서 가장 화제가 되고 있는 최신 뉴스와 이슈를 15개 찾아주세요.\n각 뉴스마다: 뉴스1: (제목) / 출처: (언론사) / 핵심: (한 줄 요약)\n최근 1주일 이내 뉴스 우선. 2026년 4월 현재 한국 이슈 반영.'
-                news_result = safe_generate(news_search_prompt)
-            with st.spinner("뉴스를 분석하고 주제를 추천 중입니다..."):
-                content_label = st.session_state.get("content_type", "쇼츠")
-                topic_prompt = '당신은 유튜브 ' + content_label + ' 백만 조회수 전문 기획자이자 유튜브 광고 수익 최적화 전문가입니다.\n\n아래는 "' + selected_cat + '" 카테고리의 최신 뉴스입니다:\n' + news_result + '\n\n유튜브 ' + content_label + '로 만들면 조회수가 폭발할 주제 10개를 추천하세요.\n\n출력 규칙을 반드시 지켜라.\n설명 문장을 절대 쓰지 마라. 번호로 바로 시작해라.\n각 줄은 반드시 슬래시 7개로 구분된 8개 항목이다.\n형식: 번호/주제/출처뉴스/떡상확률/이유/추천태그/난이도/광고적합\n\n1/고물가 시대 서민 재테크 성공 비법 5가지/MZ세대 짠테크 열풍 뉴스/95/시청자 관심이 높은 재테크 주제/짠테크,재테크,고물가,절약/쉬움/적합\n2/국민연금 고갈 위기 내 노후 준비 전략/국민연금 고갈 시점 앞당겨질 우려 뉴스/93/전 국민의 관심사인 연금 주제/국민연금,노후준비,연금고갈/보통/적합\n\n위 예시처럼 10줄을 출력해라.\n주제는 20자에서 30자 사이로 작성한다.\n떡상확률은 50에서 95 사이 숫자만 쓴다.\n난이도는 쉬움 또는 보통 또는 어려움만 쓴다.\n광고적합은 적합만 쓴다.\n따옴표 괄호 중괄호 콜론 등 특수문자를 절대 쓰지 마라.\n앞뒤로 설명이나 인사를 절대 붙이지 마라.\n첫 글자가 반드시 1이어야 한다.'
-                topic_result = safe_generate(topic_prompt, max_tokens=6000)
-                if topic_result.startswith("오류:"):
-                    st.error(topic_result)
-                else:
-                    st.session_state["topic_recommendations"] = topic_result
-                    st.session_state["news_data"] = news_result
-                    st.success("주제 추천 완료!")
-
-    if st.session_state.get("topic_recommendations"):
-        with st.expander("참고한 최신 뉴스 원문 보기"):
-            st.text(clean_special(st.session_state.get("news_data", "")))
-        st.divider()
-        st.subheader("추천 주제 TOP 10")
-        raw = st.session_state["topic_recommendations"]
-        raw_clean = clean_special(raw)
-        topics_parsed = []
-        for line in raw_clean.split("\n"):
-            parsed = parse_topic_line(line)
-            if parsed:
-                topics_parsed.append(parsed)
-        if topics_parsed:
-            for item in topics_parsed:
-                num = item.get("번호", "")
-                title = item.get("주제", "")
-                source = item.get("출처뉴스", "")
-                prob = item.get("떡상확률", 0)
-                reason = item.get("이유", "")
-                tags = item.get("추천태그", "")
-                diff = item.get("난이도", "보통")
-                if prob >= 85:
-                    pc = "#FF4444"
-                    pe = "🔥"
-                    bc = "#FF4444"
-                elif prob >= 70:
-                    pc = "#FF8800"
-                    pe = "⚡"
-                    bc = "#FF8800"
-                else:
-                    pc = "#44AA44"
-                    pe = "💡"
-                    bc = "#44AA44"
-                dc = {"쉬움": "#44CC44", "보통": "#FFAA00", "어려움": "#FF4444"}.get(diff, "#FFAA00")
-                card_html = '<div style="border:2px solid ' + bc + ';border-radius:12px;padding:16px;margin:10px 0;background:#1a1a2e;">'
-                card_html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
-                card_html += '<span style="font-size:20px;font-weight:bold;color:#FFF;">' + pe + ' ' + str(num) + '. ' + str(title) + '</span>'
-                card_html += '<span style="font-size:24px;font-weight:bold;color:' + pc + ';">' + str(prob) + '%</span></div>'
-                card_html += '<table style="width:100%;border-collapse:collapse;margin:8px 0;">'
-                card_html += '<tr style="border-bottom:1px solid #333;"><td style="padding:6px 8px;color:#888;font-size:13px;width:80px;">출처뉴스</td><td style="padding:6px 8px;color:#CCC;font-size:13px;">' + str(source) + '</td></tr>'
-                card_html += '<tr style="border-bottom:1px solid #333;"><td style="padding:6px 8px;color:#888;font-size:13px;">추천이유</td><td style="padding:6px 8px;color:#CCC;font-size:13px;">' + str(reason) + '</td></tr>'
-                card_html += '<tr style="border-bottom:1px solid #333;"><td style="padding:6px 8px;color:#888;font-size:13px;">추천태그</td><td style="padding:6px 8px;color:#CCC;font-size:13px;">' + str(tags) + '</td></tr></table>'
-                card_html += '<div style="display:flex;gap:8px;margin-top:8px;">'
-                card_html += '<span style="background:' + dc + '22;padding:4px 12px;border-radius:20px;font-size:12px;color:' + dc + ';">난이도: ' + str(diff) + '</span>'
-                card_html += '<span style="background:#00AA0022;padding:4px 12px;border-radius:20px;font-size:12px;color:#00CC00;">광고적합</span></div></div>'
-                st.markdown(card_html, unsafe_allow_html=True)
-            st.divider()
-            topic_options = [str(item.get("번호", "")) + ". " + str(item.get("주제", "")) + " (" + str(item.get("떡상확률", 0)) + "%)" for item in topics_parsed]
-            selected_topic_idx = st.selectbox("제작할 주제를 선택하세요", topic_options, key="topic_select_dropdown")
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("이 주제로 결정", key="btn_set_topic", use_container_width=True):
-                    idx = int(selected_topic_idx.split(".")[0]) - 1
-                    if 0 <= idx < len(topics_parsed):
-                        chosen = topics_parsed[idx]
-                        st.session_state["selected_topic"] = chosen.get("주제", "")
-                        st.session_state["selected_topic_data"] = chosen
-                        st.success("주제 결정: " + chosen.get("주제", ""))
-            with col_btn2:
-                custom_topic = st.text_input("또는 직접 주제 입력", key="custom_topic_input")
-                if st.button("직접 입력 주제로 결정", key="btn_custom_topic"):
-                    if custom_topic.strip():
-                        st.session_state["selected_topic"] = custom_topic.strip()
-                        st.session_state["selected_topic_data"] = {}
-                        st.success("주제 결정: " + custom_topic.strip())
-        else:
-            st.text(raw_clean)
-            topic_input = st.text_input("사용할 주제를 입력하세요", key="topic_input_fallback")
-            if st.button("이 주제로 결정", key="btn_set_topic_fallback"):
-                if topic_input.strip():
-                    st.session_state["selected_topic"] = topic_input.strip()
-                    st.success("주제 결정: " + topic_input.strip())
-
-    if st.session_state.get("selected_topic"):
-        st.divider()
-        sd = st.session_state.get("selected_topic_data", {})
-        info_line = ""
-        if sd:
-            info_line = '<div style="font-size:14px;color:#AAA;">떡상확률: <span style="color:#FF4444;font-weight:bold;">' + str(sd.get("떡상확률", "")) + '%</span> | 난이도: ' + str(sd.get("난이도", "")) + ' | 태그: ' + str(sd.get("추천태그", "")) + '</div>'
-        selected_box = '<div style="border:3px solid #4CAF50;border-radius:12px;padding:20px;background:#0a2e0a;text-align:center;">'
-        selected_box += '<div style="font-size:14px;color:#88CC88;">현재 선택된 주제</div>'
-        selected_box += '<div style="font-size:24px;font-weight:bold;color:#FFF;margin:10px 0;">' + st.session_state["selected_topic"] + '</div>'
-        selected_box += info_line + '</div>'
-        st.markdown(selected_box, unsafe_allow_html=True)
-
-with tab2:
-    st.header("대본 입력")
-    if st.session_state.get("selected_topic"):
-        st.markdown('<div style="border:2px solid #4CAF50;border-radius:8px;padding:12px;background:#0a2e0a;margin-bottom:16px;"><span style="color:#88CC88;">현재 주제:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">' + st.session_state["selected_topic"] + '</span></div>', unsafe_allow_html=True)
-    else:
-        st.warning("탭1에서 먼저 주제를 선택해주세요.")
-    script_mode = st.radio("대본 작성 방법", ["Gemini 자동 생성", "Skywork 대본 붙여넣기"], horizontal=True, key="script_mode")
-    st.divider()
-    if script_mode == "Gemini 자동 생성":
-        st.subheader("Gemini 자동 대본 생성")
-        content_type = st.session_state.get("content_type", "쇼츠")
-        col_o1, col_o2, col_o3 = st.columns(3)
-        with col_o1:
-            if content_type == "쇼츠":
-                num_episodes = st.slider("생성할 편 수", 1, 10, 1, key="num_episodes")
-            else:
-                num_episodes = 1
-                st.info("롱폼은 1편씩 생성합니다.")
-        with col_o2:
-            tone = st.selectbox("톤 선택", ["충격/폭로형", "분석/해설형", "공감/스토리형", "비교/대조형", "미래전망형"], key="tone_select")
-        with col_o3:
-            duration = st.selectbox("영상 길이", ["30분 분량", "45분 분량", "1시간 분량"], key="duration_select")
-        dur_map = {"30분 분량": {"minutes": 30, "parts": 6}, "45분 분량": {"minutes": 45, "parts": 9}, "1시간 분량": {"minutes": 60, "parts": 12}}
-        dur = dur_map.get(duration, dur_map["30분 분량"])
-        if st.button("대본 자동 생성", key="btn_auto_script", use_container_width=True):
-            topic = st.session_state.get("selected_topic", "")
-            if not topic:
-                st.error("탭1에서 주제를 먼저 선택해주세요.")
-            elif not GEMINI_API_KEY:
-                st.error("Gemini API 키가 없습니다.")
-            else:
-                if content_type == "쇼츠":
-                    with st.spinner("쇼츠 대본 생성 중..."):
-                        s_prompt = "유튜브 쇼츠 대본 작가. 주제: " + topic + ", 톤: " + tone + ", " + str(num_episodes) + "편.\n사실 기반. 인사/구독/좋아요 금지. 첫 문장 충격형. 8~15문장. 숫자 한글. 마침표만.\n===편1=== 형식으로 출력."
-                        result = safe_generate(s_prompt, max_tokens=8000)
-                        if not result.startswith("오류:"):
-                            st.session_state["auto_script_result"] = clean_script(result)
-                            st.success("쇼츠 대본 생성 완료!")
+                # 띄어쓰기가 있는 경우
+                words = line.split(" ")
+                if len(words) > 1:
+                    chunks = []
+                    current = ""
+                    for w in words:
+                        test = (current + " " + w).strip() if current else w
+                        if len(test) <= max_chars:
+                            current = test
                         else:
-                            st.error(result)
-                else:
-                    total_parts = dur["parts"]
-                    all_parts = []
-                    progress = st.progress(0)
-                    status = st.empty()
-                    for p in range(total_parts):
-                        status.text("파트 " + str(p + 1) + "/" + str(total_parts) + " 생성 중...")
-                        if p == 0:
-                            pp = "유튜브 롱폼 대본 작가. 주제: " + topic + ", 톤: " + tone + ", " + str(dur['minutes']) + "분, 파트 " + str(p + 1) + "/" + str(total_parts) + " 도입부.\n사실 기반. 최소 50문장. 한 문장 한 줄. 마크다운 금지."
+                            if current:
+                                chunks.append(current)
+                            current = w
+                    if current:
+                        chunks.append(current)
+
+                    # 청크가 여전히 긴 경우 강제 분할
+                    final_chunks = []
+                    for chunk in chunks:
+                        if len(chunk) <= max_chars:
+                            final_chunks.append(chunk)
                         else:
-                            prev = "\n".join(all_parts[-1].split("\n")[-5:]) if all_parts else ""
-                            end_r = "묵직한 여운으로 마무리." if p == total_parts - 1 else "다음 파트로 이어지게."
-                            pp = "유튜브 롱폼 대본. 주제: " + topic + ", 톤: " + tone + ", 파트 " + str(p + 1) + "/" + str(total_parts) + ".\n이전 마지막: " + prev + "\n최소 50문장. 중복 금지. " + end_r + " 한 문장 한 줄. 마크다운 금지."
-                        result = safe_generate(pp, max_tokens=8000)
-                        if result.startswith("오류:"):
-                            status.text("파트 " + str(p + 1) + " 실패")
-                            break
-                        all_parts.append(clean_script(result))
-                        progress.progress((p + 1) / total_parts)
-                        if p < total_parts - 1:
-                            time.sleep(3)
-                    if all_parts:
-                        full = "\n".join(all_parts)
-                        st.session_state["auto_script_result"] = full
-                        tl = len([l for l in full.split("\n") if l.strip() and len(l.strip()) > 2])
-                        status.text("")
-                        st.success("대본 완료! " + str(len(all_parts)) + "파트 / " + str(tl) + "문장")
-        if st.session_state.get("auto_script_result"):
-            st.divider()
-            raw_script = st.session_state["auto_script_result"]
-            preview = [l.strip() for l in raw_script.split("\n") if l.strip() and len(l.strip()) > 2]
-            st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;"><span style="color:#88CC88;font-weight:bold;">생성된 대본: ' + str(len(preview)) + '문장</span></div>', unsafe_allow_html=True)
-            edited_script = st.text_area("대본 편집", value=raw_script, height=400, key="auto_full_edit")
-            if st.button("대본 최종 저장", key="btn_save_auto", use_container_width=True):
-                final = st.session_state.get("auto_full_edit", raw_script)
-                st.session_state["script_text"] = final
-                fl = [l.strip() for l in final.split("\n") if l.strip() and len(l.strip()) > 2]
-                st.session_state["script_lines"] = fl
-                st.session_state["edited_sub_lines"] = list(fl)
-                st.success("저장 완료! " + str(len(fl)) + "문장")
-    else:
-        st.subheader("Skywork 대본 붙여넣기")
-        script_input = st.text_area("대본 붙여넣기", value=st.session_state.get("script_text", ""), height=400, key="script_textarea")
-        if st.button("대본 저장", key="btn_save_script", use_container_width=True):
-            if script_input.strip():
-                cleaned = clean_script(script_input.strip())
-                st.session_state["script_text"] = cleaned
-                lines = [l.strip() for l in cleaned.split("\n") if l.strip() and len(l.strip()) > 2]
-                st.session_state["script_lines"] = lines
-                st.session_state["edited_sub_lines"] = list(lines)
-                st.success("저장! " + str(len(lines)) + "문장")
-    if st.session_state.get("script_lines"):
-        st.divider()
-        lines = st.session_state["script_lines"]
-        st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;"><span style="color:#88CC88;">저장된 대본:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">' + str(len(lines)) + '개 문장</span></div>', unsafe_allow_html=True)
-        with st.expander("전체 장면 보기"):
-            for i, line in enumerate(lines):
-                st.markdown('<div style="padding:4px 0;border-bottom:1px solid #333;"><span style="color:#888;font-size:12px;">' + str(i + 1).zfill(3) + '</span><span style="color:#DDD;font-size:14px;margin-left:8px;">' + line + '</span></div>', unsafe_allow_html=True)
+                            # 강제 분할
+                            pos = 0
+                            while pos < len(chunk):
+                                end = min(pos + max_chars, len(chunk))
+                                if end < len(chunk):
+                                    # 자연스러운 끊김 찾기
+                                    best = -1
+                                    for punct in [".", "?", ",", "요", "다", "는", "을", "를", "이", "가", "에", "서"]:
+                                        idx = chunk.rfind(punct, pos, end)
+                                        if idx > best:
+                                            best = idx
+                                    if best > pos:
+                                        end = best + 1
+                                final_chunks.append(chunk[pos:end].strip())
+                                pos = end
+                    for fc in final_chunks:
+                        if fc:
+                            new_lines.append(fc)
+                            split_count += 1
+                    if split_count > 0:
+                        split_count -= 1  # 원본 1개 기준 보정
+                else:
+                    # 띄어쓰기 없는 긴 문장 강제 분할
+                    pos = 0
+                    while pos < len(line):
+                        end = min(pos + max_chars, len(line))
+                        if end < len(line):
+                            best = -1
+                            for punct in [".", "?", ",", "요", "다", "는", "을", "를", "이", "가", "에", "서"]:
+                                idx = line.rfind(punct, pos, end)
+                                if idx > best:
+                                    best = idx
+                            if best > pos:
+                                end = best + 1
+                        segment = line[pos:end].strip()
+                        if segment:
+                            new_lines.append(segment)
+                            split_count += 1
+                        pos = end
+                    if split_count > 0:
+                        split_count -= 1
 
-with tab3:
-    st.header("영상 업로드")
-    num_lines = len(st.session_state.get("script_lines", []))
-    if num_lines == 0:
-        st.warning("탭2에서 먼저 대본을 저장해주세요.")
-    else:
-        st.info("대본 " + str(num_lines) + "문장. 영상을 ZIP 파일로 묶어서 업로드하세요. (mp4 파일들을 하나의 ZIP으로 압축)")
+        st.session_state["edited_sub_lines"] = new_lines
+        st.success(f"분할 완료! {len(original_lines)}줄 → {len(new_lines)}줄 (분할 {split_count}회)")
+        st.warning("SRT 재생성 시 싱크가 맞도록 확인하세요.")
+        st.rerun()
 
-        if "video_save_dir" not in st.session_state or not st.session_state["video_save_dir"] or not os.path.exists(st.session_state.get("video_save_dir", "")):
-            st.session_state["video_save_dir"] = tempfile.mkdtemp(prefix="vid_")
-        if "video_file_list" not in st.session_state:
-            st.session_state["video_file_list"] = []
+    # ─── 자막 편집 영역 ───
+    st.write(f"자막 라인 수: {len(st.session_state['edited_sub_lines'])}개")
 
-        save_dir = st.session_state["video_save_dir"]
+    edited_lines = []
+    for i, line in enumerate(st.session_state["edited_sub_lines"]):
+        edited = st.text_input(
+            f"{i+1:03d}",
+            value=line,
+            key=f"sub_line_{i}"
+        )
+        edited_lines.append(edited)
 
-        upload_method = st.radio("업로드 방식", ["ZIP 파일 업로드 (권장)", "개별 파일 업로드 (50개 이하)"], horizontal=True, key="upload_method")
+    if st.button("자막 변경 저장", key="btn_save_subs"):
+        st.session_state["edited_sub_lines"] = edited_lines
+        st.success("자막 저장 완료!")
 
-        if upload_method == "ZIP 파일 업로드 (권장)":
-            st.caption("영상 파일들을 ZIP으로 압축해서 올리세요. ZIP 안의 mp4 파일들이 이름순으로 정렬됩니다.")
-            zip_upload = st.file_uploader("ZIP 파일 선택", type=["zip"], key="zip_upload")
-            if zip_upload and st.button("ZIP 압축 해제 및 추가", key="btn_unzip", use_container_width=True):
-                import zipfile
-                with st.spinner("ZIP 파일 압축 해제 중..."):
-                    zip_path = os.path.join(save_dir, "upload.zip")
-                    with open(zip_path, "wb") as f:
-                        f.write(zip_upload.getvalue())
-                    added = 0
-                    existing_names = set(v["name"] for v in st.session_state["video_file_list"])
-                    try:
-                        with zipfile.ZipFile(zip_path, "r") as zf:
-                            names = sorted(zf.namelist())
-                            progress = st.progress(0)
-                            video_names = [n for n in names if n.lower().endswith((".mp4", ".mov", ".avi", ".mkv")) and not n.startswith("__MACOSX") and not n.startswith(".")]
-                            for fi, name in enumerate(video_names):
-                                if len(st.session_state["video_file_list"]) >= 300:
-                                    st.warning("최대 300개까지만 가능합니다.")
-                                    break
-                                base_name = os.path.basename(name)
-                                if not base_name or base_name in existing_names:
-                                    progress.progress((fi + 1) / max(len(video_names), 1))
-                                    continue
-                                extract_path = os.path.join(save_dir, str(len(st.session_state["video_file_list"])).zfill(4) + "_" + base_name)
-                                with zf.open(name) as src, open(extract_path, "wb") as dst:
-                                    dst.write(src.read())
-                                file_size = os.path.getsize(extract_path)
-                                if file_size > 0:
-                                    st.session_state["video_file_list"].append({"name": base_name, "path": extract_path, "size": file_size})
-                                    existing_names.add(base_name)
-                                    added += 1
-                                progress.progress((fi + 1) / max(len(video_names), 1))
-                    except Exception as e:
-                        st.error("ZIP 압축 해제 실패: " + str(e))
-                    if os.path.exists(zip_path):
-                        os.unlink(zip_path)
-                    total = len(st.session_state["video_file_list"])
-                    if added > 0:
-                        st.success(str(added) + "개 영상 추가됨. 현재 총 " + str(total) + "개 / 필요 " + str(num_lines) + "개")
+    # ─── SRT 다운로드 ───
+    if st.button("SRT 파일 생성", key="btn_gen_srt"):
+        srt_content = ""
+        duration_per_line = 3.0  # 초
+        for i, line in enumerate(st.session_state["edited_sub_lines"]):
+            start_sec = i * duration_per_line
+            end_sec = start_sec + duration_per_line
 
+            start_h = int(start_sec // 3600)
+            start_m = int((start_sec % 3600) // 60)
+            start_s = int(start_sec % 60)
+            start_ms = int((start_sec % 1) * 1000)
+
+            end_h = int(end_sec // 3600)
+            end_m = int((end_sec % 3600) // 60)
+            end_s = int(end_sec % 60)
+            end_ms = int((end_sec % 1) * 1000)
+
+            srt_content += f"{i+1}\n"
+            srt_content += f"{start_h:02d}:{start_m:02d}:{start_s:02d},{start_ms:03d} --> "
+            srt_content += f"{end_h:02d}:{end_m:02d}:{end_s:02d},{end_ms:03d}\n"
+            srt_content += f"{line}\n\n"
+
+        st.download_button(
+            "SRT 다운로드",
+            srt_content.encode("utf-8"),
+            file_name="subtitles.srt",
+            mime="text/plain"
+        )
+
+
+# ============================================================
+#  탭3: 이미지 영상 업로드 (ZIP 방식, 최대 500개)
+# ============================================================
+def render_video_upload_tab():
+    st.subheader("이미지 영상 업로드 (ZIP)")
+    st.caption(f"MP4 영상을 ZIP으로 묶어서 업로드하세요. 최대 {MAX_VIDEO_COUNT}개까지 가능합니다.")
+
+    current_count = len(st.session_state["video_list"])
+    remain = MAX_VIDEO_COUNT - current_count
+    st.info(f"현재 {current_count}개 등록 / 남은 슬롯 {remain}개")
+
+    zip_file = st.file_uploader(
+        "ZIP 파일 선택",
+        type=["zip"],
+        key="video_zip_uploader"
+    )
+
+    if zip_file is not None and st.button("ZIP 압축 해제 및 등록", key="btn_unzip_video"):
+        if remain <= 0:
+            st.error(f"이미 {MAX_VIDEO_COUNT}개가 등록되어 있습니다. 초기화 후 다시 업로드하세요.")
         else:
-            st.caption("50개 이하일 때만 사용하세요. 많으면 ZIP 방식을 이용하세요.")
-            video_upload = st.file_uploader("영상 파일 선택", type=["mp4", "mov", "avi", "mkv"], accept_multiple_files=True, key="video_upload")
-            if video_upload and st.button("이 파일들 추가", key="btn_add_videos", use_container_width=True):
+            with st.spinner("ZIP 압축 해제 중..."):
+                tmp_zip_path = os.path.join(st.session_state["video_save_dir"], "temp_upload.zip")
+                with open(tmp_zip_path, "wb") as f:
+                    f.write(zip_file.getbuffer())
+
                 added = 0
-                existing_names = set(v["name"] for v in st.session_state["video_file_list"])
-                progress = st.progress(0)
-                total_files = len(video_upload)
-                sorted_files = sorted(video_upload, key=lambda x: x.name)
-                for fi, f in enumerate(sorted_files):
-                    if len(st.session_state["video_file_list"]) >= 300:
-                        st.warning("최대 300개까지만 업로드 가능합니다.")
-                        break
-                    if f.name not in existing_names:
-                        file_path = os.path.join(save_dir, str(len(st.session_state["video_file_list"])).zfill(4) + "_" + f.name)
-                        with open(file_path, "wb") as wf:
-                            wf.write(f.getvalue())
-                        file_size = os.path.getsize(file_path)
-                        st.session_state["video_file_list"].append({"name": f.name, "path": file_path, "size": file_size})
-                        existing_names.add(f.name)
-                        added += 1
-                    progress.progress((fi + 1) / total_files)
-                total = len(st.session_state["video_file_list"])
-                st.success(str(added) + "개 추가됨. 현재 총 " + str(total) + "개 / 필요 " + str(num_lines) + "개")
+                skipped = 0
+                existing_names = set(v["name"] for v in st.session_state["video_list"])
 
-        col_up1, col_up2 = st.columns(2)
-        with col_up1:
-            if st.button("전체 영상 확정", key="btn_confirm_videos", use_container_width=True):
-                if st.session_state["video_file_list"]:
-                    st.session_state["uploaded_videos"] = list(st.session_state["video_file_list"])
-                    total = len(st.session_state["uploaded_videos"])
-                    st.success("총 " + str(total) + "개 영상 확정 완료!")
-                    if total < num_lines:
-                        st.warning("영상 " + str(total) + "개 < 문장 " + str(num_lines) + "개. 부족분은 마지막 영상 반복.")
-                    elif total > num_lines:
-                        st.warning("영상 " + str(total) + "개 > 문장 " + str(num_lines) + "개. 초과분 무시.")
-                else:
-                    st.warning("추가된 영상이 없습니다.")
-        with col_up2:
-            if st.button("업로드 초기화", key="btn_reset_videos", use_container_width=True):
-                old_dir = st.session_state.get("video_save_dir", "")
-                if old_dir and os.path.exists(old_dir):
-                    shutil.rmtree(old_dir, ignore_errors=True)
-                st.session_state["video_save_dir"] = tempfile.mkdtemp(prefix="vid_")
-                st.session_state["video_file_list"] = []
-                st.session_state["uploaded_videos"] = []
-                st.success("영상 업로드가 초기화되었습니다.")
+                try:
+                    with zipfile.ZipFile(tmp_zip_path, "r") as zf:
+                        entries = sorted([
+                            e for e in zf.namelist()
+                            if e.lower().endswith(".mp4")
+                            and not e.startswith("__MACOSX")
+                            and not os.path.basename(e).startswith(".")
+                        ])
+
+                        for entry in entries:
+                            if added + current_count >= MAX_VIDEO_COUNT:
+                                st.warning(f"{MAX_VIDEO_COUNT}개 한도 도달. 나머지는 건너뜁니다.")
+                                break
+
+                            fname = os.path.basename(entry)
+                            if not fname:
+                                continue
+                            if fname in existing_names:
+                                skipped += 1
+                                continue
+
+                            save_path = os.path.join(
+                                st.session_state["video_save_dir"],
+                                f"{current_count + added:04d}_{fname}"
+                            )
+                            with zf.open(entry) as src, open(save_path, "wb") as dst:
+                                shutil.copyfileobj(src, dst)
+
+                            fsize = os.path.getsize(save_path)
+                            st.session_state["video_list"].append({
+                                "name": fname,
+                                "path": save_path,
+                                "size": fsize
+                            })
+                            existing_names.add(fname)
+                            added += 1
+
+                except zipfile.BadZipFile:
+                    st.error("ZIP 파일이 손상되었습니다. 다시 압축해서 올려주세요.")
+                finally:
+                    if os.path.exists(tmp_zip_path):
+                        os.remove(tmp_zip_path)
+
+                if added > 0:
+                    st.success(f"{added}개 영상 등록 완료! (중복 건너뜀: {skipped}개)")
+                elif skipped > 0:
+                    st.warning(f"모두 중복이라 새로 등록된 영상이 없습니다. ({skipped}개 건너뜀)")
                 st.rerun()
 
-        file_list = st.session_state.get("video_file_list", [])
-        acc_count = len(file_list)
-        if acc_count > 0:
-            acc_size = sum(v.get("size", 0) for v in file_list) / 1024 / 1024
-            st.markdown('<div style="background:#1a1a2e;border:2px solid #FF8800;border-radius:8px;padding:12px;margin-top:8px;"><span style="color:#FF8800;">누적 대기중:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">' + str(acc_count) + '개 / ' + str(round(acc_size, 1)) + 'MB</span><span style="color:#AAA;margin-left:12px;">(확정 버튼을 누르면 최종 반영됩니다)</span></div>', unsafe_allow_html=True)
+    # ─── 등록된 영상 목록 ───
+    if st.session_state["video_list"]:
+        total_size_mb = sum(v["size"] for v in st.session_state["video_list"]) / (1024 * 1024)
+        st.write(f"등록된 영상: {len(st.session_state['video_list'])}개 / 총 {total_size_mb:.1f}MB")
 
-        if st.session_state.get("uploaded_videos"):
-            st.divider()
-            videos = st.session_state["uploaded_videos"]
-            total_size = sum(v.get("size", 0) for v in videos) / 1024 / 1024
-            st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;"><span style="color:#88CC88;">확정된 영상:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">' + str(len(videos)) + '개 / ' + str(round(total_size, 1)) + 'MB</span><span style="color:#AAA;margin-left:12px;">(필요: ' + str(num_lines) + '개)</span></div>', unsafe_allow_html=True)
-            with st.expander("영상 목록 (처음 50개만 표시)"):
-                show_count = min(len(videos), 50)
-                for i in range(show_count):
-                    v = videos[i]
-                    sz = v.get("size", 0) / 1024 / 1024
-                    lt = st.session_state["script_lines"][i] if i < num_lines else ""
-                    st.markdown('<div style="padding:4px 0;border-bottom:1px solid #333;"><span style="color:#888;">' + str(i + 1).zfill(3) + '</span><span style="color:#FFF;margin-left:8px;">' + v["name"] + ' (' + str(round(sz, 1)) + 'MB)</span><span style="color:#AAA;margin-left:8px;font-size:12px;">' + lt[:40] + '</span></div>', unsafe_allow_html=True)
-                if len(videos) > 50:
-                    st.caption("... 외 " + str(len(videos) - 50) + "개 더 있음")
+        with st.expander("영상 목록 보기"):
+            for i, v in enumerate(st.session_state["video_list"]):
+                size_kb = v["size"] / 1024
+                st.text(f"{i+1:03d}. {v['name']} ({size_kb:.0f}KB)")
+
+        if st.button("영상 전체 초기화", key="btn_reset_videos"):
+            for v in st.session_state["video_list"]:
+                if os.path.exists(v["path"]):
+                    try:
+                        os.remove(v["path"])
+                    except:
+                        pass
+            st.session_state["video_list"] = []
+            st.success("영상 목록 초기화 완료")
+            st.rerun()
+
+
+# ============================================================
+#  탭4: 음성 파일 업로드 (개별 또는 ZIP)
+# ============================================================
+def render_audio_upload_tab():
+    st.subheader("TTS 음성 파일 업로드")
+    st.caption("WAV, MP3 음성 파일을 개별 또는 ZIP으로 업로드하세요.")
+
+    upload_mode = st.radio(
+        "업로드 방식",
+        ["개별 파일 업로드", "ZIP 일괄 업로드"],
+        horizontal=True,
+        key="audio_upload_mode"
+    )
+
+    if upload_mode == "개별 파일 업로드":
+        audio_files = st.file_uploader(
+            "음성 파일 선택 (WAV, MP3)",
+            type=["wav", "mp3"],
+            accept_multiple_files=True,
+            key="audio_individual_uploader"
+        )
+
+        if audio_files and st.button("음성 등록", key="btn_register_audio"):
+            existing_names = set(a["name"] for a in st.session_state["audio_list"])
+            added = 0
+            for af in audio_files:
+                if af.name in existing_names:
+                    continue
+                save_path = os.path.join(
+                    st.session_state["audio_save_dir"],
+                    f"{len(st.session_state['audio_list']):04d}_{af.name}"
+                )
+                with open(save_path, "wb") as f:
+                    f.write(af.getbuffer())
+                fsize = os.path.getsize(save_path)
+                st.session_state["audio_list"].append({
+                    "name": af.name,
+                    "path": save_path,
+                    "size": fsize
+                })
+                existing_names.add(af.name)
+                added += 1
+            if added > 0:
+                st.success(f"{added}개 음성 파일 등록 완료!")
+                st.rerun()
+
+    else:
+        audio_zip = st.file_uploader(
+            "음성 ZIP 파일 선택",
+            type=["zip"],
+            key="audio_zip_uploader"
+        )
+
+        if audio_zip is not None and st.button("음성 ZIP 압축 해제", key="btn_unzip_audio"):
+            with st.spinner("음성 ZIP 압축 해제 중..."):
+                tmp_zip_path = os.path.join(st.session_state["audio_save_dir"], "temp_audio.zip")
+                with open(tmp_zip_path, "wb") as f:
+                    f.write(audio_zip.getbuffer())
+
+                added = 0
+                existing_names = set(a["name"] for a in st.session_state["audio_list"])
+
+                try:
+                    with zipfile.ZipFile(tmp_zip_path, "r") as zf:
+                        entries = sorted([
+                            e for e in zf.namelist()
+                            if (e.lower().endswith(".wav") or e.lower().endswith(".mp3"))
+                            and not e.startswith("__MACOSX")
+                            and not os.path.basename(e).startswith(".")
+                        ])
+
+                        for entry in entries:
+                            fname = os.path.basename(entry)
+                            if not fname or fname in existing_names:
+                                continue
+
+                            save_path = os.path.join(
+                                st.session_state["audio_save_dir"],
+                                f"{len(st.session_state['audio_list']):04d}_{fname}"
+                            )
+                            with zf.open(entry) as src, open(save_path, "wb") as dst:
+                                shutil.copyfileobj(src, dst)
+
+                            fsize = os.path.getsize(save_path)
+                            st.session_state["audio_list"].append({
+                                "name": fname,
+                                "path": save_path,
+                                "size": fsize
+                            })
+                            existing_names.add(fname)
+                            added += 1
+
+                except zipfile.BadZipFile:
+                    st.error("ZIP 파일이 손상되었습니다.")
+                finally:
+                    if os.path.exists(tmp_zip_path):
+                        os.remove(tmp_zip_path)
+
+                if added > 0:
+                    st.success(f"{added}개 음성 파일 등록 완료!")
+                    st.rerun()
+
+    # ─── 등록된 음성 목록 ───
+    if st.session_state["audio_list"]:
+        total_size_mb = sum(a["size"] for a in st.session_state["audio_list"]) / (1024 * 1024)
+        st.write(f"등록된 음성: {len(st.session_state['audio_list'])}개 / 총 {total_size_mb:.1f}MB")
+
+        with st.expander("음성 목록 보기"):
+            for i, a in enumerate(st.session_state["audio_list"]):
+                size_kb = a["size"] / 1024
+                st.text(f"{i+1:03d}. {a['name']} ({size_kb:.0f}KB)")
+
+        st.write("음성 미리듣기:")
+        preview_idx = st.number_input(
+            "번호 선택",
+            min_value=1,
+            max_value=len(st.session_state["audio_list"]),
+            value=1,
+            key="audio_preview_idx"
+        )
+        audio_item = st.session_state["audio_list"][preview_idx - 1]
+        if os.path.exists(audio_item["path"]):
+            with open(audio_item["path"], "rb") as f:
+                audio_bytes = f.read()
+            fmt = "audio/wav" if audio_item["name"].lower().endswith(".wav") else "audio/mp3"
+            st.audio(audio_bytes, format=fmt)
+            st.caption(audio_item["name"])
+
+        if st.button("음성 전체 초기화", key="btn_reset_audio"):
+            for a in st.session_state["audio_list"]:
+                if os.path.exists(a["path"]):
+                    try:
+                        os.remove(a["path"])
+                    except:
+                        pass
+            st.session_state["audio_list"] = []
+            st.success("음성 목록 초기화 완료")
+            st.rerun()
+
+
+# ============================================================
+#  탭5: 영상 + 음성 최종 병합
+# ============================================================
+def render_merge_tab():
+    st.subheader("영상 + 음성 최종 병합")
+
+    v_count = len(st.session_state.get("video_list", []))
+    a_count = len(st.session_state.get("audio_list", []))
+
+    st.info(f"등록 영상: {v_count}개 / 등록 음성: {a_count}개")
+
+    if v_count == 0:
+        st.warning("영상을 먼저 업로드하세요.")
+        return
+    if a_count == 0:
+        st.warning("음성 파일을 먼저 업로드하세요.")
+        return
+
+    merge_mode = st.radio(
+        "병합 방식",
+        [
+            "음성 1개 + 영상 전체 이어붙이기 (음성 길이에 맞춤)",
+            "음성 N개 + 영상 N개 일대일 매칭"
+        ],
+        key="merge_mode"
+    )
+
+    if st.button("최종 병합 시작", key="btn_final_merge"):
+
+        output_dir = tempfile.mkdtemp()
+
+        if "음성 1개" in merge_mode:
+            audio_path = st.session_state["audio_list"][0]["path"]
+
+            with st.spinner("영상 이어붙이기 중..."):
+                concat_list_path = os.path.join(output_dir, "concat.txt")
+                with open(concat_list_path, "w") as cl:
+                    for v in st.session_state["video_list"]:
+                        safe_path = v["path"].replace("'", "'\\''")
+                        cl.write(f"file '{safe_path}'\n")
+
+                concat_video_path = os.path.join(output_dir, "concat_video.mp4")
+                cmd_concat = [
+                    "ffmpeg", "-y",
+                    "-f", "concat", "-safe", "0",
+                    "-i", concat_list_path,
+                    "-c", "copy",
+                    concat_video_path
+                ]
+                result = subprocess.run(cmd_concat, capture_output=True, text=True)
+                if result.returncode != 0:
+                    st.error(f"영상 이어붙이기 실패:\n{result.stderr[:500]}")
+                    return
+
+            with st.spinner("음성 합치는 중..."):
+                final_path = os.path.join(output_dir, "final_output.mp4")
+                cmd_merge = [
+                    "ffmpeg", "-y",
+                    "-i", concat_video_path,
+                    "-i", audio_path,
+                    "-c:v", "copy",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    "-shortest",
+                    final_path
+                ]
+                result = subprocess.run(cmd_merge, capture_output=True, text=True)
+                if result.returncode != 0:
+                    st.error(f"음성 병합 실패:\n{result.stderr[:500]}")
+                    return
+
+            if os.path.exists(final_path):
+                st.success("병합 완료!")
+                with open(final_path, "rb") as f:
+                    final_bytes = f.read()
+                st.video(final_bytes)
+                st.download_button(
+                    "최종 영상 다운로드",
+                    final_bytes,
+                    file_name="final_output.mp4",
+                    mime="video/mp4"
+                )
+
+        else:
+            match_count = min(v_count, a_count)
+            st.write(f"{match_count}개 매칭하여 병합합니다.")
+
+            progress = st.progress(0)
+            merged_paths = []
+
+            for i in range(match_count):
+                v_path = st.session_state["video_list"][i]["path"]
+                a_path = st.session_state["audio_list"][i]["path"]
+                out_path = os.path.join(output_dir, f"merged_{i:04d}.mp4")
+
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-i", v_path,
+                    "-i", a_path,
+                    "-c:v", "copy",
+                    "-c:a", "aac",
+                    "-b:a", "192k",
+                    "-shortest",
+                    out_path
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode == 0 and os.path.exists(out_path):
+                    merged_paths.append(out_path)
+                progress.progress((i + 1) / match_count)
+
+            if merged_paths:
+                concat_list_path = os.path.join(output_dir, "final_concat.txt")
+                with open(concat_list_path, "w") as cl:
+                    for mp in merged_paths:
+                        safe_path = mp.replace("'", "'\\''")
+                        cl.write(f"file '{safe_path}'\n")
+
+                final_path = os.path.join(output_dir, "final_matched.mp4")
+                cmd_final = [
+                    "ffmpeg", "-y",
+                    "-f", "concat", "-safe", "0",
+                    "-i", concat_list_path,
+                    "-c", "copy",
+                    final_path
+                ]
+                result = subprocess.run(cmd_final, capture_output=True, text=True)
+
+                if result.returncode == 0 and os.path.exists(final_path):
+                    st.success(f"{len(merged_paths)}개 영상+음성 매칭 병합 완료!")
+                    with open(final_path, "rb") as f:
+                        final_bytes = f.read()
+                    st.video(final_bytes)
+                    st.download_button(
+                        "최종 영상 다운로드",
+                        final_bytes,
+                        file_name="final_matched.mp4",
+                        mime="video/mp4"
+                    )
+                else:
+                    st.error("최종 이어붙이기 실패")
+            else:
+                st.error("매칭 병합된 영상이 없습니다.")
+
+
+# ============================================================
+#  메인: 탭 구성 및 렌더링
+# ============================================================
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    "대본 작성",
+    "자막 편집",
+    "이미지 영상",
+    "음성 업로드",
+    "최종 병합"
+])
+
+with tab1:
+    render_script_tab()
+
+with tab2:
+    render_subtitle_tab()
+
+with tab3:
+    render_video_upload_tab()
 
 with tab4:
-    st.header("TTS 음성 생성")
-    lines = st.session_state.get("script_lines", [])
-    if not lines:
-        st.warning("탭2에서 먼저 대본을 저장해주세요.")
-    elif not INWORLD_API_KEY:
-        st.error("Inworld API 키가 없습니다. Secrets에 INWORLD_API_KEY를 추가하세요.")
-    else:
-        st.info("대본 " + str(len(lines)) + "문장에 대해 TTS 음성을 생성합니다.")
-        col_v1, col_v2 = st.columns(2)
-        with col_v1:
-            selected_voice = st.selectbox("음성 선택", list(VOICE_OPTIONS.keys()), key="voice_select")
-            voice_id = VOICE_OPTIONS[selected_voice]
-        with col_v2:
-            tts_model = st.selectbox("TTS 모델", ["inworld-tts-1.5-max (고품질)", "inworld-tts-1.5-mini (빠른 속도)"], key="tts_model_select")
-            model_id = "inworld-tts-1.5-max" if "max" in tts_model else "inworld-tts-1.5-mini"
-        test_text = st.text_input("테스트 문장", value=lines[0] if lines else "테스트입니다.", key="tts_test")
-        if st.button("테스트 음성", key="btn_tts_test"):
-            with st.spinner("생성 중..."):
-                audio, err = inworld_tts(test_text, voice_id, model_id)
-                if err:
-                    st.error(err)
-                elif audio:
-                    st.audio(audio, format="audio/mp3")
-                    st.success("테스트 완료!")
-        st.divider()
-        if st.button("전체 대본 TTS 생성", key="btn_tts_all", use_container_width=True):
-            audio_data = []
-            durations = []
-            progress = st.progress(0)
-            status = st.empty()
-            fail = 0
-            for i, line in enumerate(lines):
-                status.text("TTS " + str(i + 1) + "/" + str(len(lines)) + ": " + line[:30] + "...")
-                audio, err = inworld_tts(line, voice_id, model_id)
-                if err:
-                    fail += 1
-                    audio_data.append(None)
-                    durations.append(3.0)
-                elif audio:
-                    audio_data.append(audio)
-                    durations.append(get_audio_duration(audio))
-                else:
-                    fail += 1
-                    audio_data.append(None)
-                    durations.append(3.0)
-                progress.progress((i + 1) / len(lines))
-                if i < len(lines) - 1:
-                    time.sleep(0.3)
-            st.session_state["tts_audio_data"] = audio_data
-            st.session_state["tts_durations"] = durations
-            status.text("")
-            ok = len([a for a in audio_data if a])
-            td = sum(durations)
-            st.success("TTS 완료! 성공: " + str(ok) + "/" + str(len(lines)) + " / 총 " + str(round(td, 1)) + "초 (" + str(round(td / 60, 1)) + "분)")
-            if fail:
-                st.warning("실패 " + str(fail) + "개는 기본 3초 적용.")
-        if st.session_state.get("tts_audio_data"):
-            st.divider()
-            ad = st.session_state["tts_audio_data"]
-            dr = st.session_state["tts_durations"]
-            td = sum(dr)
-            st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;"><span style="color:#88CC88;">총 음성:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">' + str(round(td, 1)) + '초 (' + str(round(td / 60, 1)) + '분)</span></div>', unsafe_allow_html=True)
-            with st.expander("개별 음성 확인"):
-                for i, (a, d) in enumerate(zip(ad, dr)):
-                    lt = lines[i] if i < len(lines) else ""
-                    st.caption(str(i + 1).zfill(3) + " (" + str(round(d, 1)) + "초): " + lt[:50])
-                    if a:
-                        st.audio(a, format="audio/mp3")
+    render_audio_upload_tab()
 
 with tab5:
-    st.header("자막 편집")
-    lines = st.session_state.get("script_lines", [])
-    durations = st.session_state.get("tts_durations", [])
-    if not lines:
-        st.warning("탭2에서 먼저 대본을 저장해주세요.")
-    elif not durations:
-        st.warning("탭4에서 먼저 TTS 음성을 생성해주세요.")
-    else:
-        ct = st.session_state.get("content_type", "쇼츠")
-        if ct == "쇼츠":
-            sub_style = st.session_state.get("subtitle_style_shorts", dict(DEFAULT_SUB_SHORTS))
-        else:
-            sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
-        if "line_spacing" not in sub_style:
-            sub_style["line_spacing"] = 20
-        if not st.session_state.get("edited_sub_lines"):
-            st.session_state["edited_sub_lines"] = list(lines)
-        st.subheader("자막 스타일 설정")
-        col_s1, col_s2, col_s3, col_s4 = st.columns(4)
-        with col_s1:
-            sel_font = st.selectbox("글꼴", FONT_LIST, index=FONT_LIST.index(sub_style.get("font", FONT_LIST[0])) if sub_style.get("font", FONT_LIST[0]) in FONT_LIST else 0, key="sub_font")
-            sub_style["font"] = sel_font
-        with col_s2:
-            sub_style["size"] = st.slider("글자 크기", 12, 60, sub_style.get("size", 28), key="sub_size")
-        with col_s3:
-            sub_style["color"] = st.color_picker("글자 색상", sub_style.get("color", "#FFFFFF"), key="sub_color")
-        with col_s4:
-            sub_style["outline_width"] = st.slider("외곽선 두께", 0, 6, sub_style.get("outline_width", 2), key="sub_outline")
-        col_s5, col_s6, col_s7, col_s8 = st.columns(4)
-        with col_s5:
-            sub_style["outline_color"] = st.color_picker("외곽선 색상", sub_style.get("outline_color", "#000000"), key="sub_outline_color")
-        with col_s6:
-            pos_options = ["상단", "중앙", "하단"]
-            pos_idx = pos_options.index(sub_style.get("position", "하단")) if sub_style.get("position", "하단") in pos_options else 2
-            sub_style["position"] = st.selectbox("위치", pos_options, index=pos_idx, key="sub_position")
-        with col_s7:
-            sub_style["margin_v"] = st.slider("상하 여백", 0, 100, sub_style.get("margin_v", 30), key="sub_margin_v")
-        with col_s8:
-            sub_style["bg_opacity"] = st.slider("배경 투명도", 0.0, 1.0, sub_style.get("bg_opacity", 0.5), step=0.1, key="sub_bg_opacity")
-        col_s9, col_s10 = st.columns(2)
-        with col_s9:
-            sub_style["line_spacing"] = st.slider("줄 간격 (2줄 자막 세로 간격)", 0, 60, int(sub_style.get("line_spacing", 20)), key="sub_line_spacing")
-        with col_s10:
-            st.caption("0 = 줄 붙음 / 20 = 기본 / 40 = 넓음 / 60 = 매우 넓음")
-        if ct == "쇼츠":
-            st.session_state["subtitle_style_shorts"] = sub_style
-        else:
-            st.session_state["subtitle_style_long"] = sub_style
-        st.divider()
-        st.subheader("자막 미리보기")
-        edited_lines = st.session_state["edited_sub_lines"]
-        total_subs = len(edited_lines)
-        preview_num = st.number_input("미리볼 자막 번호", min_value=1, max_value=max(total_subs, 1), value=1, step=1, key="preview_num_input")
-        preview_idx = preview_num - 1
-        preview_text = edited_lines[preview_idx] if preview_idx < len(edited_lines) else ""
-        preview_dur = durations[preview_idx] if preview_idx < len(durations) else 3.0
-        font_name = FONT_MAP.get(sub_style.get("font", "나눔고딕 볼드"), "NanumGothicBold")
-        font_import = "https://fonts.googleapis.com/css2?family=" + font_name.replace(" ", "+") + "&display=swap"
-        pos_val = sub_style.get("position", "하단")
-        if pos_val == "상단":
-            vert_align = "flex-start"
-            pad_area = "padding-top:" + str(sub_style.get("margin_v", 30)) + "px;"
-        elif pos_val == "중앙":
-            vert_align = "center"
-            pad_area = ""
-        else:
-            vert_align = "flex-end"
-            pad_area = "padding-bottom:" + str(sub_style.get("margin_v", 30)) + "px;"
-        bg_r = int(sub_style.get("outline_color", "#000000")[1:3], 16)
-        bg_g = int(sub_style.get("outline_color", "#000000")[3:5], 16)
-        bg_b = int(sub_style.get("outline_color", "#000000")[5:7], 16)
-        bg_a = sub_style.get("bg_opacity", 0.5)
-        outline_w = sub_style.get("outline_width", 2)
-        oc = sub_style.get("outline_color", "#000000")
-        shadow_str = oc + " " + str(outline_w) + "px " + str(outline_w) + "px 0px, " + oc + " -" + str(outline_w) + "px -" + str(outline_w) + "px 0px, " + oc + " " + str(outline_w) + "px -" + str(outline_w) + "px 0px, " + oc + " -" + str(outline_w) + "px " + str(outline_w) + "px 0px"
-        if ct == "쇼츠":
-            box_w = "360px"
-            box_h = "640px"
-        else:
-            box_w = "640px"
-            box_h = "360px"
-        font_size_px = str(sub_style.get("size", 28))
-        font_color = sub_style.get("color", "#FFFFFF")
-        ls_px = sub_style.get("line_spacing", 20)
-        line_height_val = str(round(1.2 + ls_px / 40.0, 2))
-        preview_html = '<style>@import url("' + font_import + '");</style>'
-        preview_html += '<div style="width:' + box_w + ';height:' + box_h + ';background:#1a1a2e;border:2px solid #444;border-radius:8px;display:flex;align-items:' + vert_align + ';justify-content:center;' + pad_area + 'margin:0 auto;">'
-        preview_html += '<div style="background:rgba(' + str(bg_r) + ',' + str(bg_g) + ',' + str(bg_b) + ',' + str(bg_a) + ');padding:10px 24px;border-radius:6px;width:85%;text-align:center;">'
-        preview_html += "<span style=\"font-family:'" + font_name + "',sans-serif;font-size:" + font_size_px + "px;color:" + font_color + ";text-shadow:" + shadow_str + ";font-weight:bold;word-break:keep-all;overflow-wrap:break-word;white-space:normal;line-height:" + line_height_val + ";\">"
-        preview_html += preview_text + '</span></div></div>'
-        st.markdown(preview_html, unsafe_allow_html=True)
-        st.caption(str(preview_num) + "번 자막 (총 " + str(total_subs) + "개) / " + str(round(preview_dur, 1)) + "초 / 글자수: " + str(len(preview_text)))
-        st.divider()
-        st.subheader("자막 목록 한눈에 보기")
-        list_html = '<div style="max-height:400px;overflow-y:auto;border:1px solid #333;border-radius:8px;padding:8px;">'
-        for si in range(total_subs):
-            s_text = edited_lines[si] if si < len(edited_lines) else ""
-            s_dur = durations[si] if si < len(durations) else 3.0
-            char_count = len(s_text)
-            if char_count > 30:
-                row_color = "#FF6B6B"
-            elif char_count > 20:
-                row_color = "#FFD93D"
-            else:
-                row_color = "#6BCB77"
-            list_html += '<div style="padding:4px 8px;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;">'
-            list_html += '<span style="color:#888;font-size:12px;min-width:40px;">' + str(si + 1).zfill(3) + '</span>'
-            list_html += '<span style="color:#AAA;font-size:11px;min-width:50px;">' + str(round(s_dur, 1)) + '초</span>'
-            list_html += '<span style="color:' + row_color + ';font-size:11px;min-width:40px;">' + str(char_count) + '자</span>'
-            list_html += '<span style="color:#DDD;font-size:13px;margin-left:8px;">' + s_text + '</span></div>'
-        list_html += '</div>'
-        st.markdown(list_html, unsafe_allow_html=True)
-        st.caption("빨간색: 30자 초과 / 노란색: 20~30자 / 초록색: 20자 이하")
-        st.divider()
-        st.subheader("긴 자막 자동 분할")
-        max_chars = st.slider("한 줄 최대 글자수", 10, 40, 20, key="max_sub_chars")
-        if st.button("긴 자막 자동 분할", key="btn_auto_split_subs", use_container_width=True):
-            original = st.session_state.get("edited_sub_lines", [])
-            new_lines = []
-            split_count = 0
-            for line in original:
-                line = line.strip()
-                if not line:
-                    continue
-                if len(line) <= max_chars:
-                    new_lines.append(line)
-                else:
-                    words = line.split(" ")
-                    if len(words) >= 2:
-                        temp_lines = []
-                        current = ""
-                        for w in words:
-                            if current and len(current + " " + w) > max_chars:
-                                temp_lines.append(current.strip())
-                                current = w
-                            else:
-                                current = current + " " + w if current else w
-                        if current.strip():
-                            temp_lines.append(current.strip())
-                        for tl in temp_lines:
-                            if len(tl) > max_chars:
-                                new_lines.extend(split_korean_line(tl, max_chars))
-                            else:
-                                new_lines.append(tl)
-                        split_count += 1
-                    else:
-                        new_lines.extend(split_korean_line(line, max_chars))
-                        split_count += 1
-            st.session_state["edited_sub_lines"] = new_lines
-            if split_count > 0:
-                st.success("분할 완료! " + str(len(original)) + "개 → " + str(len(new_lines)) + "개 (" + str(split_count) + "개 자막 분할됨)")
-                st.warning("자막이 분할되었습니다. 아래에서 SRT를 다시 생성하면 음성 싱크에 맞춰 자동 배분됩니다.")
-            else:
-                st.info("모든 자막이 " + str(max_chars) + "자 이하입니다. 분할할 자막이 없습니다.")
-            st.rerun()
-        st.divider()
-        st.subheader("자막 텍스트 편집")
-        all_sub_text = "\n".join(st.session_state["edited_sub_lines"])
-        edited_all = st.text_area("자막 전체 편집 (한 줄에 하나씩, 엔터로 구분)", value=all_sub_text, height=400, key="bulk_sub_edit")
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            if st.button("편집 내용 저장", key="btn_save_subs", use_container_width=True):
-                new_lines = [l.strip() for l in edited_all.split("\n") if l.strip()]
-                if len(new_lines) == 0:
-                    st.error("자막이 비어있습니다.")
-                else:
-                    st.session_state["edited_sub_lines"] = new_lines
-                    if len(new_lines) != len(durations):
-                        st.warning("자막 수(" + str(len(new_lines)) + ")와 음성 수(" + str(len(durations)) + ")가 다릅니다.")
-                    st.success("자막 저장 완료! " + str(len(new_lines)) + "개")
-        with col_b2:
-            if st.button("SRT 자막 생성", key="btn_gen_srt", use_container_width=True):
-                sub_lines = st.session_state.get("edited_sub_lines", lines)
-                if len(sub_lines) == len(durations):
-                    srt = generate_srt(sub_lines, durations)
-                else:
-                    srt = generate_srt_split(sub_lines, durations)
-                st.session_state["srt_content"] = srt
-                st.success("SRT 생성 완료! (자막 " + str(len(sub_lines)) + "개 / 음성 " + str(len(durations)) + "개)")
-        if st.session_state.get("srt_content"):
-            with st.expander("SRT 내용 확인"):
-                st.text(st.session_state["srt_content"][:3000])
-            st.download_button("SRT 파일 다운로드", data=st.session_state["srt_content"], file_name="subtitles.srt", mime="text/plain", key="dl_srt")
-
-with tab6:
-    st.header("최종 영상 합치기")
-    videos = st.session_state.get("uploaded_videos", [])
-    audio_data = st.session_state.get("tts_audio_data", [])
-    srt = st.session_state.get("srt_content", "")
-    lines = st.session_state.get("script_lines", [])
-    ready = True
-    if not videos:
-        st.warning("탭3에서 영상을 업로드해주세요.")
-        ready = False
-    if not audio_data or not any(a for a in audio_data if a):
-        st.warning("탭4에서 TTS 음성을 생성해주세요.")
-        ready = False
-    if not srt:
-        st.warning("탭5에서 SRT 자막을 생성해주세요.")
-        ready = False
-    if ready:
-        ct = st.session_state.get("content_type", "쇼츠")
-        if ct == "쇼츠":
-            sub_style = st.session_state.get("subtitle_style_shorts", dict(DEFAULT_SUB_SHORTS))
-        else:
-            sub_style = st.session_state.get("subtitle_style_long", dict(DEFAULT_SUB_LONG))
-        sub_style["_content_type"] = ct
-        ok_audio = len([a for a in audio_data if a])
-        info_msg = "영상 " + str(len(videos)) + "개 / 음성 " + str(ok_audio) + "개 / 자막 준비됨"
-        st.markdown('<div style="background:#1a2e1a;border:2px solid #4CAF50;border-radius:8px;padding:12px;"><span style="color:#88CC88;">준비 상태:</span><span style="color:#FFF;font-weight:bold;margin-left:8px;">' + info_msg + '</span></div>', unsafe_allow_html=True)
-        st.info("Streamlit Cloud에서 영상 합치기는 서버 성능 제한이 있습니다.")
-        if st.button("최종 영상 합치기", key="btn_merge_final", use_container_width=True):
-            ffmpeg_check = shutil.which("ffmpeg")
-            if not ffmpeg_check:
-                st.error("ffmpeg가 설치되어 있지 않습니다. packages.txt 파일을 확인해주세요.")
-            else:
-                with st.spinner("영상을 합치고 있습니다..."):
-                    result, err = merge_final_video(videos, audio_data, srt, sub_style)
-                    if err:
-                        st.error(err)
-                    elif result:
-                        st.session_state["final_video"] = result
-                        st.success("최종 영상 완성!")
-        if st.session_state.get("final_video"):
-            st.divider()
-            st.subheader("완성된 영상")
-            st.video(st.session_state["final_video"])
-            fsize = len(st.session_state["final_video"]) / 1024 / 1024
-            st.caption("파일 크기: " + str(round(fsize, 1)) + "MB")
-            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-            fname = "final_" + ts + ".mp4"
-            st.download_button("영상 다운로드", data=st.session_state["final_video"], file_name=fname, mime="video/mp4", key="dl_final_video", use_container_width=True)
+    render_merge_tab()
